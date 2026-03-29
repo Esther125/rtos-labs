@@ -407,8 +407,8 @@ void  OSTimeTick (void)
     if ((OSTCBCur != (OS_TCB *)0) &&
         (OSTCBCur->OSTCBPrio >= 1) &&
         (OSTCBCur->OSTCBPrio <= 3) &&
-        (OSTCBCur->computeTime > 0)) {
-        OSTCBCur->computeTime--;
+        (OSTCBCur->compTimeCtr > 0)) {
+        OSTCBCur->compTimeCtr--;
     }
 }
 /*$PAGE*/

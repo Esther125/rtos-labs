@@ -409,8 +409,7 @@ typedef struct os_tcb {
     BOOLEAN        OSTCBDelReq;        /* Indicates whether a task needs to delete itself              */
 #endif
     /* ==================== LAB1 MODIFIED ==================== */
-    /* RM scheduling fields */
-    INT16S computeTime;
+    INT16U compTimeCtr;
     INT16U period;
 } OS_TCB;
 
