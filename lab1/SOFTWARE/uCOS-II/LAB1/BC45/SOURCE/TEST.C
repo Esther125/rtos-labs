@@ -59,6 +59,7 @@ void  TaskStart (void *pdata){
         // ESC 退出設定
         if(PC_GetKey(&key) == TRUE){ // See if key has been pressed
             if(key == 0x1B){ // See if it's the ESC key
+                OS_DumpMsg();
                 PC_DOSReturn();
             }
         }
@@ -74,11 +75,13 @@ void BaseTask(INT16U compTime, INT16U period){
     INT32U start;
     INT32U end;
     INT16U toDelay; // 等多久下一次 task 才會 release
+    INT8U priority;
 
     start = 0;
     OS_ENTER_CRITICAL(); 
     OSTCBCur->period = period;
     OSTCBCur->compTimeCtr = compTime;
+    priority = OSTCBCur->OSTCBPrio;
     OS_EXIT_CRITICAL();
 
     while(1){
@@ -87,6 +90,11 @@ void BaseTask(INT16U compTime, INT16U period){
         }
         // c ticks 都用完
         end = OSTimeGet(); 
+        // TEST
+        if (end > start+OSTCBCur->period){
+            printf("time:%d task%d exceed deadline\n", start+OSTCBCur->period, priority);
+        }
+        OS_AddMsg(1, priority, 0);
         toDelay = (OSTCBCur->period - (end - start));
         start = start + OSTCBCur->period; // next start time
 

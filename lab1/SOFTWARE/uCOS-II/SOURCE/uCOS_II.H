@@ -409,6 +409,7 @@ typedef struct os_tcb {
     BOOLEAN        OSTCBDelReq;        /* Indicates whether a task needs to delete itself              */
 #endif
     /* ==================== LAB1 MODIFIED ==================== */
+    // 在 TCB 當中新增建立 task 所需要的欄位
     INT16U compTimeCtr;
     INT16U period;
 } OS_TCB;
@@ -420,17 +421,19 @@ typedef struct os_tcb {
 *********************************************************************************************************
 */
 /* ==================== LAB1 MODIFIED ==================== */
-/* schedule event log structures */
-typedef struct _msg {
-    int tick;           // 當前時間(tick)
-    int event;          // 事件(0=preemt, 1=complete)
-    int fromTaskId;     // 事件發生前 task ID
-    int toTaskId;       // 事件發生後 task ID
-    struct _msg *next;
+#define OS_SCHED_LOG_SIZE 256
+
+typedef struct msg {
+    INT32U tick;          // 當前時間(tick)
+    INT8U event;          // 事件(0=preemt, 1=complete)
+    INT8U fromTaskId;     // 事件發生前 task ID
+    INT8U toTaskId;       // 事件發生後 task ID
 } msg;
 
-OS_EXT msg *msgList;    // 訊息佇列 (linked list)
-OS_EXT msg* msgTemp;    // 訊息佇列暫存變數
+OS_EXT msg OSMsgRing[OS_SCHED_LOG_SIZE];
+OS_EXT INT16U OSMsgHead;
+OS_EXT INT16U OSMsgTail;
+
 OS_EXT  INT32U            OSCtxSwCtr;               /* Counter of number of context switches           */
 
 #if (OS_EVENT_EN > 0) && (OS_MAX_EVENTS > 0)
@@ -800,9 +803,10 @@ void          OS_QInit(void);
 #endif
 
 void          OS_Sched(void);
+
 /* ==================== LAB1 MODIFIED ==================== */
-/* append one schedule event node */
-void          OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+void OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+void OS_DumpMsg(void);
 
 void          OS_TaskIdle(void *data);
 

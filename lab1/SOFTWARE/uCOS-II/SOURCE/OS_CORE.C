@@ -186,11 +186,9 @@ void  OSIntExit (void)
             OSPrioHighRdy = (INT8U)((OSIntExitY << 3) + OSUnMapTbl[OSRdyTbl[OSIntExitY]]);
             if (OSPrioHighRdy != OSPrioCur) {              /* No Ctx Sw if current task is highest rdy */
                 /* ==================== LAB1 MODIFIED ==================== */
-                /* log tick-driven preemption among RM tasks */
-                if ((OSPrioCur >= 1) && (OSPrioCur <= 3) &&
-                    (OSPrioHighRdy >= 1) && (OSPrioHighRdy <= 3)) {
-                    OS_AddMsg(0, OSPrioCur, OSPrioHighRdy);
-                }
+                // Preemption 發生，將 event 寫入 buffer
+                // 第一個參數為 0 代表 preemption event
+                OS_AddMsg(0, OSPrioCur, OSPrioHighRdy); 
 
                 OSTCBHighRdy  = OSTCBPrioTbl[OSPrioHighRdy];
 
@@ -404,12 +402,8 @@ void  OSTimeTick (void)
     }
     /* ==================== LAB1 MODIFIED ==================== */
     /* decrement RM tasks' compute time each tick */
-    if ((OSTCBCur != (OS_TCB *)0) &&
-        (OSTCBCur->OSTCBPrio >= 1) &&
-        (OSTCBCur->OSTCBPrio <= 3) &&
-        (OSTCBCur->compTimeCtr > 0)) {
-        OSTCBCur->compTimeCtr--;
-    }
+    OSTCBCur->compTimeCtr--;
+    
 }
 /*$PAGE*/
 /*
@@ -685,6 +679,9 @@ static  void  OS_InitMisc (void)
     OSCtxSwCtr    = 0;                                           /* Clear the context switch counter         */
     OSIdleCtr     = 0L;                                          /* Clear the 32-bit idle counter            */
 
+    OSMsgHead     = 0;
+    OSMsgTail     = 0;
+    
 #if (OS_TASK_STAT_EN > 0) && (OS_TASK_CREATE_EXT_EN > 0)
     OSIdleCtrRun  = 0L;
     OSIdleCtrMax  = 0L;
@@ -905,32 +902,62 @@ void  OS_Sched (void)
 }
 
 /* ==================== LAB1 MODIFIED ==================== */
-/* schedule event logging helper */
-void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId)
-{
-    msg *newMsg;
+// 把排程事件寫到 ring buffer 
+void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
+#if OS_CRITICAL_METHOD == 3
+    OS_CPU_SR  cpu_sr;
+#endif
+    INT16U next;
 
-    if (msgList == (msg *)0) {
+    OS_ENTER_CRITICAL();
+    next = (INT16U)((OSMsgHead + 1) % OS_SCHED_LOG_SIZE);
+
+    /* buffer full: drop newest */
+    if (next == OSMsgTail) {
+        OS_EXIT_CRITICAL();
         return;
     }
 
-    newMsg = (msg *)malloc(sizeof(msg));
-    if (newMsg == (msg *)0) {
-        return;
-    }
-
-    newMsg->tick       = (int)OSTimeGet();
-    newMsg->event      = (int)event;
-    newMsg->fromTaskId = (int)fromTaskId;
-    newMsg->toTaskId   = (int)toTaskId;
-    newMsg->next       = (msg *)0;
-
-    msgTemp = msgList;
-    while (msgTemp->next != (msg *)0) {
-        msgTemp = msgTemp->next;
-    }
-    msgTemp->next = newMsg;
+    OSMsgRing[OSMsgHead].tick       = OSTimeGet();
+    OSMsgRing[OSMsgHead].event      = event;
+    OSMsgRing[OSMsgHead].fromTaskId = fromTaskId;
+    OSMsgRing[OSMsgHead].toTaskId   = toTaskId;
+    OSMsgHead = next;
+    OS_EXIT_CRITICAL();
 }
+
+// 從 ring buffer 印出訊息
+void  OS_DumpMsg (void){
+#if OS_CRITICAL_METHOD == 3
+    OS_CPU_SR  cpu_sr;
+#endif
+    msg local;
+    unsigned int from_id;
+    unsigned int to_id;
+
+    printf("Tick Event      From To\n");
+
+    for (;;) {
+        OS_ENTER_CRITICAL();
+        if (OSMsgTail == OSMsgHead) { // buffer 空了
+            OS_EXIT_CRITICAL();
+            break;
+        }
+
+        local = OSMsgRing[OSMsgTail];
+        OSMsgTail = (INT16U)((OSMsgTail + 1) % OS_SCHED_LOG_SIZE);
+        OS_EXIT_CRITICAL();
+
+        from_id = (unsigned int)local.fromTaskId;
+        to_id   = (unsigned int)local.toTaskId;
+        printf("%-4lu %-10s %3u %3u\n",
+               (unsigned long)local.tick,
+               (local.event == 0) ? "Preempt" : "Complete",
+               from_id, to_id);
+    }
+}
+
+
 /*$PAGE*/
 /*
 *********************************************************************************************************
