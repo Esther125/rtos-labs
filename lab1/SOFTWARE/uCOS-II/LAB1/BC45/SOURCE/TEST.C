@@ -9,7 +9,6 @@
 /* VARIABLES */
 OS_STK TaskStk[N_TASKS][TASK_STK_SIZE]; // Tasks stacks
 OS_STK TaskStartStk[TASK_STK_SIZE];
-OS_STK TaskMonStk[TASK_STK_SIZE];
 
 /* FUNCTION PROTOTYPES */
 void TaskStart(void *data); 
@@ -17,16 +16,15 @@ void BaseTask(INT16U compTime, INT16U period);
 void Task1(void *pdata);
 void Task2(void *pdata);
 void Task3(void *pdata);
-void TaskMon(void *pdata);
 void CheckEscAndExit(void);
 
 /* MAIN */
 void  main (void){
-// Initialize uC/OS-II
+    // Initialize uC/OS-II
     OSInit();
-// Save environment to return to DOS
+    // Save environment to return to DOS
     PC_DOSSaveReturn();
-// Install uC/OS-II's context switch vector 
+    // Install uC/OS-II's context switch vector 
     PC_VectSet(uCOS, OSCtxSw);
 
     OS_ENTER_CRITICAL();
@@ -39,10 +37,9 @@ void  main (void){
     // Create application tasks directly before OSStart
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
-    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
-    OSTaskCreate(TaskMon, (void *)0, &TaskMonStk[TASK_STK_SIZE - 1], 11);
+    // OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
     
-// Start multitasking
+    // Start multitasking
     OSStart(); 
 }
 
@@ -65,7 +62,7 @@ void  TaskStart (void *pdata){
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
     OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
-    /* ==================== LAB1 MODIFIED ==================== */
+    
     // Startup task 只負責初始化，完成後自刪，避免干擾 RM 任務排程
     OSTaskDel(OS_PRIO_SELF);
 }
@@ -78,25 +75,6 @@ void CheckEscAndExit(void){
             OS_DumpMsg();
             PC_DOSReturn();
         }
-    }
-}
-
-void TaskMon(void *pdata){
-    pdata = pdata;
-
-    while (1) {
-        if (OSMissDeadlineFlag) {
-            while (OS_DumpMsgOne() == TRUE) {
-            }
-            printf("time:%lu task%u exceed deadline\n",
-                   (unsigned long)OSMissDeadlineTick,
-                   (unsigned int)OSMissTaskPrio);
-            PC_DOSReturn();
-        }
-
-        OS_DumpMsgOne();
-        CheckEscAndExit();
-        OSTimeDly(1);
     }
 }
 
