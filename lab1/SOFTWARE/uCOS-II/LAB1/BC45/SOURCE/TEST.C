@@ -59,19 +59,22 @@ void BaseTask(INT16U compTime, INT16U period){
     INT32U start;
     INT32U end;
     INT32U elapsed;
-    INT32U toDelay; // 等多久下一次 task 才會 release
+    INT16U toDelay; // 等多久下一次 task 才會 release
     INT16U lastCtr;
-    INT8U priority;
 
     start = 0;
-    OS_ENTER_CRITICAL(); 
+    OS_ENTER_CRITICAL();
     OSTCBCur->period = period;
-    OSTCBCur->compTimeCtr = compTime;
+    OSTCBCur->compTimeCtr = 0; // 先設 0，sleep 期間不讓 ISR 遞減
     OSTCBCur->deadlineTick = period;
-    priority = OSTCBCur->OSTCBPrio;
     OS_EXIT_CRITICAL();
 
     while(1){
+        // 在 busy-wait 開始前才重置 compTimeCtr，避免 sleep 前被 ISR 提早遞減
+        OS_ENTER_CRITICAL();
+        OSTCBCur->compTimeCtr = compTime;
+        OS_EXIT_CRITICAL();
+
         lastCtr = OSTCBCur->compTimeCtr;
         while(OSTCBCur->compTimeCtr > 0){ // c ticks
             if (OSMissDeadlineFlag) {
@@ -90,21 +93,25 @@ void BaseTask(INT16U compTime, INT16U period){
         // c ticks 都用完
         end = OSTimeGet();
         elapsed = end - start;
-        if (elapsed >= OSTCBCur->period) {
+        if (elapsed >= (INT32U)OSTCBCur->period) {
             toDelay = 0;
         } else {
-            toDelay = OSTCBCur->period - elapsed;
+            toDelay = (INT16U)(OSTCBCur->period - elapsed);
         }
         start = start + OSTCBCur->period; // next start time
 
-        OS_ENTER_CRITICAL(); 
-        OSTCBCur -> compTimeCtr = compTime; // reset the counter
-        OSTCBCur -> deadlineTick = OSTCBCur->deadlineTick + OSTCBCur->period;
+        OS_ENTER_CRITICAL();
+        OSTCBCur->compTimeCtr = 0; // sleep 前先清零，ISR 不會遞減
+        OSTCBCur->deadlineTick = OSTCBCur->deadlineTick + OSTCBCur->period;
         OS_EXIT_CRITICAL();
 
-        OSTimeDly(toDelay);
+        if (toDelay > 0) {
+            OSTimeDly(toDelay);
+        } else {
+            OS_Sched(); // elapsed >= period：不 sleep，但仍 yield 給 scheduler
+        }
     }
-   
+
 }
 
 /* APPLICATION TASKS */

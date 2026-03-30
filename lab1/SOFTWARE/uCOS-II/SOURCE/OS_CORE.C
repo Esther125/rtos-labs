@@ -404,16 +404,6 @@ void  OSTimeTick (void)
                     }                                      /* ... suspension is removed.               */
                 }
             }
-            /* ==================== LAB1 MODIFIED ==================== */
-            /* detect deadline miss at the exact deadline tick */
-            if ((OSMissDeadlineFlag == 0) &&
-                (ptcb->period != 0) &&
-                (ptcb->compTimeCtr > 0) &&
-                (OSTime >= ptcb->deadlineTick)) {
-                OSMissDeadlineFlag = 1;
-                OSMissTaskPrio = ptcb->OSTCBPrio;
-                OSMissDeadlineTick = ptcb->deadlineTick;
-            }
             ptcb = ptcb->OSTCBNext;                        /* Point at next TCB in TCB list            */
             OS_EXIT_CRITICAL();
         }
@@ -421,6 +411,23 @@ void  OSTimeTick (void)
         /* decrement RM tasks' compute time each tick */
         if (OSTCBCur->compTimeCtr > 0) {
             OSTCBCur->compTimeCtr--;
+        }
+        /* detect deadline miss AFTER decrement，避免 off-by-one：
+           task 剛好在 deadline tick 完成不應算 miss */
+        {
+            OS_TCB *p;
+            p = OSTCBList;
+            while (p->OSTCBPrio != OS_IDLE_PRIO) {
+                if ((OSMissDeadlineFlag == 0) &&
+                    (p->period != 0) &&
+                    (p->compTimeCtr > 0) &&
+                    (OSTime > p->deadlineTick)) {
+                    OSMissDeadlineFlag = 1;
+                    OSMissTaskPrio = p->OSTCBPrio;
+                    OSMissDeadlineTick = p->deadlineTick;
+                }
+                p = p->OSTCBNext;
+            }
         }
     }
     
