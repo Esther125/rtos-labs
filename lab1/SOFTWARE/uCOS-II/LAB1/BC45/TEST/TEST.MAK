@@ -149,6 +149,15 @@ $(OBJ)\TEST.OBJ:                      \
 
 $(OBJ)\uCOS_II.OBJ:                   \
                $(OS)\uCOS_II.C        \
+               $(OS)\OS_CORE.C        \
+               $(OS)\OS_FLAG.C        \
+               $(OS)\OS_MBOX.C        \
+               $(OS)\OS_MEM.C         \
+               $(OS)\OS_MUTEX.C       \
+               $(OS)\OS_Q.C           \
+               $(OS)\OS_SEM.C         \
+               $(OS)\OS_TASK.C        \
+               $(OS)\OS_TIME.C        \
                $(INCLUDES)
 
                COPY   $(OS)\uCOS_II.C       uCOS_II.C

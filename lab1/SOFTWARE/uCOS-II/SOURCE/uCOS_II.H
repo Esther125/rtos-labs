@@ -412,6 +412,7 @@ typedef struct os_tcb {
     // 在 TCB 當中新增建立 task 所需要的欄位
     INT16U compTimeCtr;
     INT16U period;
+    INT32U deadlineTick;
 } OS_TCB;
 
 /*$PAGE*/
@@ -433,6 +434,9 @@ typedef struct msg {
 OS_EXT msg OSMsgRing[OS_SCHED_LOG_SIZE];
 OS_EXT INT16U OSMsgHead;
 OS_EXT INT16U OSMsgTail;
+OS_EXT INT8U  OSMissDeadlineFlag;
+OS_EXT INT8U  OSMissTaskPrio;
+OS_EXT INT32U OSMissDeadlineTick;
 
 OS_EXT  INT32U            OSCtxSwCtr;               /* Counter of number of context switches           */
 
@@ -806,6 +810,7 @@ void          OS_Sched(void);
 
 /* ==================== LAB1 MODIFIED ==================== */
 void OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+INT8U OS_DumpMsgOne(void);
 void OS_DumpMsg(void);
 
 void          OS_TaskIdle(void *data);

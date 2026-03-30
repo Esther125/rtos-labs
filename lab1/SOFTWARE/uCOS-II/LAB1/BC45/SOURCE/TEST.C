@@ -17,20 +17,30 @@ void BaseTask(INT16U compTime, INT16U period);
 void Task1(void *pdata);
 void Task2(void *pdata);
 void Task3(void *pdata);
+void CheckEscAndExit(void);
 
 /* MAIN */
 void  main (void){
-    // Initialize uC/OS-II
+// Initialize uC/OS-II
     OSInit();
-    // Save environment to return to DOS
+// Save environment to return to DOS
     PC_DOSSaveReturn();
-    // Install uC/OS-II's context switch vector 
+// Install uC/OS-II's context switch vector 
     PC_VectSet(uCOS, OSCtxSw);
+
+    OS_ENTER_CRITICAL();
+    // Install uC/OS-II's clock tick ISR
+    PC_VectSet(0x08, OSTickISR);
+    // Reprogram tick rate
+    PC_SetTickRate(OS_TICKS_PER_SEC);
+    OS_EXIT_CRITICAL();
+
+    // Create application tasks directly before OSStart
+    OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
+    OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
+    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
     
-    // Create start up task
-    OSTaskCreate(TaskStart, (void *)0, &TaskStartStk[TASK_STK_SIZE - 1], 10);
-    
-    // Start multitasking
+// Start multitasking
     OSStart(); 
 }
 
@@ -40,7 +50,6 @@ void  TaskStart (void *pdata){
 #if OS_CRITICAL_METHOD == 3
     OS_CPU_SR  cpu_sr;
 #endif
-    INT16S key;
     pdata = pdata;
 
     OS_ENTER_CRITICAL();
@@ -54,19 +63,28 @@ void  TaskStart (void *pdata){
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
     OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
+    /* ==================== LAB1 MODIFIED ==================== */
+    // Startup task 只負責初始化，完成後自刪，避免干擾 RM 任務排程
+    OSTaskDel(OS_PRIO_SELF);
+}
 
-    for (;;) {
-        // ESC 退出設定
-        if(PC_GetKey(&key) == TRUE){ // See if key has been pressed
-            if(key == 0x1B){ // See if it's the ESC key
-                OS_DumpMsg();
-                PC_DOSReturn();
-            }
+void CheckEscAndExit(void){
+    INT16S key;
+
+    if (OSMissDeadlineFlag) {
+        while (OS_DumpMsgOne() == TRUE) {
         }
+        printf("time:%lu task%u exceed deadline\n",
+               (unsigned long)OSMissDeadlineTick,
+               (unsigned int)OSMissTaskPrio);
+        PC_DOSReturn();
+    }
 
-        // Startup task 永遠不應該 return
-        // 以 delay 方式把 CPU 讓給其他 ready tasks
-        OSTimeDly(OS_TICKS_PER_SEC); // Wait one second
+    if (PC_GetKey(&key) == TRUE) {
+        if (key == 0x1B) {
+            OS_DumpMsg();
+            PC_DOSReturn();
+        }
     }
 }
 
@@ -74,32 +92,44 @@ void  TaskStart (void *pdata){
 void BaseTask(INT16U compTime, INT16U period){
     INT32U start;
     INT32U end;
-    INT16U toDelay; // 等多久下一次 task 才會 release
+    INT32U elapsed;
+    INT32U toDelay; // 等多久下一次 task 才會 release
     INT8U priority;
 
     start = 0;
     OS_ENTER_CRITICAL(); 
     OSTCBCur->period = period;
     OSTCBCur->compTimeCtr = compTime;
+    OSTCBCur->deadlineTick = period;
     priority = OSTCBCur->OSTCBPrio;
     OS_EXIT_CRITICAL();
 
     while(1){
         while(OSTCBCur->compTimeCtr > 0){ // c ticks
+            CheckEscAndExit();
             // do nothing
         }
         // c ticks 都用完
         end = OSTimeGet(); 
-        // TEST
-        if (end > start+OSTCBCur->period){
-            printf("time:%d task%d exceed deadline\n", start+OSTCBCur->period, priority);
+        elapsed = end - start;
+        if (elapsed > OSTCBCur->period){
+            while (OS_DumpMsgOne() == TRUE) {
+            }
+            printf("time:%lu task%u exceed deadline\n",
+                   (unsigned long)(start + OSTCBCur->period),
+                   (unsigned int)priority);
+            PC_DOSReturn();
         }
-        OS_AddMsg(1, priority, 0);
-        toDelay = (OSTCBCur->period - (end - start));
+        if (elapsed >= OSTCBCur->period) {
+            toDelay = 0;
+        } else {
+            toDelay = OSTCBCur->period - elapsed;
+        }
         start = start + OSTCBCur->period; // next start time
 
         OS_ENTER_CRITICAL(); 
         OSTCBCur -> compTimeCtr = compTime; // reset the counter
+        OSTCBCur -> deadlineTick = OSTCBCur->deadlineTick + OSTCBCur->period;
         OS_EXIT_CRITICAL();
 
         OSTimeDly(toDelay);
