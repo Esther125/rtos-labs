@@ -37,34 +37,10 @@ void  main (void){
     // Create application tasks directly before OSStart
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
-    // OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
+    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
     
     // Start multitasking
     OSStart(); 
-}
-
-/* STARTUP TASK */
-void  TaskStart (void *pdata){
-// Allocate storage for CPU status register
-#if OS_CRITICAL_METHOD == 3
-    OS_CPU_SR  cpu_sr;
-#endif
-    pdata = pdata;
-
-    OS_ENTER_CRITICAL();
-    // Install uC/OS-II's clock tick ISR
-    PC_VectSet(0x08, OSTickISR);
-    // Reprogram tick rate
-    PC_SetTickRate(OS_TICKS_PER_SEC);
-    OS_EXIT_CRITICAL();
-
-    // Create application tasks
-    OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
-    OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
-    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
-    
-    // Startup task 只負責初始化，完成後自刪，避免干擾 RM 任務排程
-    OSTaskDel(OS_PRIO_SELF);
 }
 
 void CheckEscAndExit(void){
