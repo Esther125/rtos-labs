@@ -895,6 +895,10 @@ void  OS_Sched (void)
         if (OSPrioHighRdy != OSPrioCur) {              /* No Ctx Sw if current task is highest rdy     */
             OSTCBHighRdy = OSTCBPrioTbl[OSPrioHighRdy];
             OSCtxSwCtr++;                              /* Increment context switch counter             */
+            /* ==================== LAB1 MODIFIED ==================== */
+            // event 為 1 代表 complete event
+            OS_AddMsg(1, OSPrioCur, OSPrioHighRdy);
+
             OS_TASK_SW();                              /* Perform a context switch                     */
         }
     }
