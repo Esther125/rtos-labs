@@ -9,7 +9,7 @@
 /* VARIABLES */
 OS_STK TaskStk[N_TASKS][TASK_STK_SIZE]; // Tasks stacks
 OS_STK TaskStartStk[TASK_STK_SIZE];
-char TaskData[N_TASKS]; // Parameters to pass to each task
+OS_STK TaskMonStk[TASK_STK_SIZE];
 
 /* FUNCTION PROTOTYPES */
 void TaskStart(void *data); 
@@ -17,6 +17,7 @@ void BaseTask(INT16U compTime, INT16U period);
 void Task1(void *pdata);
 void Task2(void *pdata);
 void Task3(void *pdata);
+void TaskMon(void *pdata);
 void CheckEscAndExit(void);
 
 /* MAIN */
@@ -39,6 +40,7 @@ void  main (void){
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
     OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
+    OSTaskCreate(TaskMon, (void *)0, &TaskMonStk[TASK_STK_SIZE - 1], 11);
     
 // Start multitasking
     OSStart(); 
@@ -71,20 +73,30 @@ void  TaskStart (void *pdata){
 void CheckEscAndExit(void){
     INT16S key;
 
-    if (OSMissDeadlineFlag) {
-        while (OS_DumpMsgOne() == TRUE) {
-        }
-        printf("time:%lu task%u exceed deadline\n",
-               (unsigned long)OSMissDeadlineTick,
-               (unsigned int)OSMissTaskPrio);
-        PC_DOSReturn();
-    }
-
     if (PC_GetKey(&key) == TRUE) {
         if (key == 0x1B) {
             OS_DumpMsg();
             PC_DOSReturn();
         }
+    }
+}
+
+void TaskMon(void *pdata){
+    pdata = pdata;
+
+    while (1) {
+        if (OSMissDeadlineFlag) {
+            while (OS_DumpMsgOne() == TRUE) {
+            }
+            printf("time:%lu task%u exceed deadline\n",
+                   (unsigned long)OSMissDeadlineTick,
+                   (unsigned int)OSMissTaskPrio);
+            PC_DOSReturn();
+        }
+
+        OS_DumpMsgOne();
+        CheckEscAndExit();
+        OSTimeDly(1);
     }
 }
 
@@ -94,6 +106,7 @@ void BaseTask(INT16U compTime, INT16U period){
     INT32U end;
     INT32U elapsed;
     INT32U toDelay; // 等多久下一次 task 才會 release
+    INT16U lastCtr;
     INT8U priority;
 
     start = 0;
@@ -105,21 +118,24 @@ void BaseTask(INT16U compTime, INT16U period){
     OS_EXIT_CRITICAL();
 
     while(1){
+        lastCtr = OSTCBCur->compTimeCtr;
         while(OSTCBCur->compTimeCtr > 0){ // c ticks
-            CheckEscAndExit();
-            // do nothing
+            if (OSMissDeadlineFlag) {
+                while (OS_DumpMsgOne() == TRUE) {
+                }
+                printf("time:%lu task%u exceed deadline\n",
+                       (unsigned long)OSMissDeadlineTick,
+                       (unsigned int)OSMissTaskPrio);
+                PC_DOSReturn();
+            }
+            if (OSTCBCur->compTimeCtr != lastCtr) {
+                lastCtr = OSTCBCur->compTimeCtr;
+                CheckEscAndExit();
+            }
         }
         // c ticks 都用完
-        end = OSTimeGet(); 
+        end = OSTimeGet();
         elapsed = end - start;
-        if (elapsed > OSTCBCur->period){
-            while (OS_DumpMsgOne() == TRUE) {
-            }
-            printf("time:%lu task%u exceed deadline\n",
-                   (unsigned long)(start + OSTCBCur->period),
-                   (unsigned int)priority);
-            PC_DOSReturn();
-        }
         if (elapsed >= OSTCBCur->period) {
             toDelay = 0;
         } else {
