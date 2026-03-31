@@ -410,7 +410,9 @@ typedef struct os_tcb {
 #endif
     /* ==================== LAB1 MODIFIED ==================== */
     // 在 TCB 當中新增建立 task 所需要的欄位
-    INT16U compTimeCtr;
+    INT16U compTimeCtr;    /* free-running counter, decremented every tick while task runs */
+    INT16U compTime;       /* required computation ticks per period */
+    INT16U compStartCtr;   /* snapshot of compTimeCtr at start of each computation period */
     INT16U period;
     INT32U deadlineTick;
 } OS_TCB;
