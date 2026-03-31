@@ -27,11 +27,12 @@ void  main (void){
     // Install uC/OS-II's context switch vector 
     PC_VectSet(uCOS, OSCtxSw);
 
-    OS_ENTER_CRITICAL();
     // Install uC/OS-II's clock tick ISR
+    // - 因為 tick ISR 隨時可能被硬體 timer 觸發
+    // - 所以要用 critical section 保護避免 race condition
+    OS_ENTER_CRITICAL();
     PC_VectSet(0x08, OSTickISR);
-    // Reprogram tick rate
-    PC_SetTickRate(OS_TICKS_PER_SEC);
+    PC_SetTickRate(OS_TICKS_PER_SEC); // 把 time 頻率調成指定頻率
     OS_EXIT_CRITICAL();
 
     // Create application tasks directly before OSStart
@@ -46,8 +47,10 @@ void  main (void){
 void CheckEscAndExit(void){
     INT16S key;
 
+    // 檢查有沒有按鍵
     if (PC_GetKey(&key) == TRUE) {
-        if (key == 0x1B) {
+        // 檢查是不是 esc
+        if (key == 0x1B) { // 0x1B: ASCII code of esc
             OS_DumpMsg();
             PC_DOSReturn();
         }
@@ -56,50 +59,51 @@ void CheckEscAndExit(void){
 
 /* BASETASK */
 void BaseTask(INT16U compTime, INT16U period){
-    INT32U start;
-    INT32U end;
-    INT32U elapsed;
+    INT32U start; // task 開始時間
+    INT32U end; // task 結束時間
+    INT32U elapsed; // task 從開始到結束經過多久
     INT32U toDelay; // 等多久下一次 task 才會 release
-    INT16U lastCtr;
-    INT8U priority;
 
     start = 0;
+
+    // 初始化 task 的 TCB 欄位
+    // LAB1 新增的 TCB 欄位：
+    // - compTime: task 執行的總時間
+    // - period: task 執行的週期
+    // - deadline: task 截止時間
     OS_ENTER_CRITICAL(); 
+    OSTCBCur->compTime = compTime;
     OSTCBCur->period = period;
-    OSTCBCur->compTimeCtr = compTime;
-    OSTCBCur->deadlineTick = period;
-    priority = OSTCBCur->OSTCBPrio;
+    OSTCBCur->deadline = period;
     OS_EXIT_CRITICAL();
 
     while(1){
-        lastCtr = OSTCBCur->compTimeCtr;
-        while(OSTCBCur->compTimeCtr > 0){ // c ticks
-            if (OSMissDeadlineFlag) {
-                while (OS_DumpMsgOne() == TRUE) {
-                }
-                printf("time:%lu task%u exceed deadline\n",
-                       (unsigned long)OSMissDeadlineTick,
-                       (unsigned int)OSMissTaskPrio);
-                PC_DOSReturn();
-            }
-            if (OSTCBCur->compTimeCtr != lastCtr) {
-                lastCtr = OSTCBCur->compTimeCtr;
-                CheckEscAndExit();
-            }
+        while(OSTCBCur -> compTime > 0){ 
+            // busy waiting
         }
-        // c ticks 都用完
+
+        // 執行時間全部使用完畢 
         end = OSTimeGet();
         elapsed = end - start;
-        if (elapsed >= OSTCBCur->period) {
-            toDelay = 0;
-        } else {
-            toDelay = OSTCBCur->period - elapsed;
-        }
-        start = start + OSTCBCur->period; // next start time
 
-        OS_ENTER_CRITICAL(); 
-        OSTCBCur -> compTimeCtr = compTime; // reset the counter
-        OSTCBCur -> deadlineTick = OSTCBCur->deadlineTick + OSTCBCur->period;
+        // 判斷有沒有超時
+        if (elapsed >= period){
+            OS_DumpMsg();
+            printf("time:%lu task%u exceed deadline\n", 
+                (unsigned long)OSTCBCur->deadline, 
+                (unsigned int)OSTCBCur -> OSTCBPrio
+            );
+            PC_DOSReturn(); 
+        }
+        
+        // 沒有超時
+        toDelay = period - elapsed;
+        start += period; // 增加一個週期的時間即下個任務開始的時間
+        
+        // 重設 compTime
+        OS_ENTER_CRITICAL();
+        OSTCBCur -> compTime = compTime;
+        OSTCBCur -> deadline += period;
         OS_EXIT_CRITICAL();
 
         OSTimeDly(toDelay);

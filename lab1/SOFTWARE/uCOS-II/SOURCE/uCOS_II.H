@@ -410,9 +410,9 @@ typedef struct os_tcb {
 #endif
     /* ==================== LAB1 MODIFIED ==================== */
     // 在 TCB 當中新增建立 task 所需要的欄位
-    INT16U compTimeCtr;
+    INT16U compTime;
     INT16U period;
-    INT32U deadlineTick;
+    INT32U deadline;
 } OS_TCB;
 
 /*$PAGE*/
