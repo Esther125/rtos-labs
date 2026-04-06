@@ -412,6 +412,10 @@ typedef struct os_tcb {
     // 在 TCB 當中新增建立 task 所需要的欄位
     volatile INT16U compTime;
     INT16U period;
+    /* ==================== LAB1 MODIFIED ==================== */
+    // 絕對 release/deadline，用於即時 deadline miss 檢查
+    INT32U releaseTick;
+    INT32U absDeadline;
 } OS_TCB;
 
 /*$PAGE*/

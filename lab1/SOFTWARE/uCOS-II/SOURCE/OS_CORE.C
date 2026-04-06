@@ -400,6 +400,21 @@ void  OSTimeTick (void)
         if (OSTCBCur->compTime > 0) {
             OSTCBCur->compTime--;
         }
+        /* ==================== LAB1 MODIFIED ==================== */
+        /* detect deadline miss exactly at tick boundary */
+        if (OSMissTaskPrio == 0) {
+            ptcb = OSTCBList;
+            while (ptcb->OSTCBPrio != OS_IDLE_PRIO) {
+                if ((ptcb->period > 0) &&
+                    (ptcb->compTime > 0) &&
+                    (OSTime >= ptcb->absDeadline)) {
+                    OSMissTaskPrio     = ptcb->OSTCBPrio;
+                    OSMissDeadlineTick = ptcb->absDeadline;
+                    break;
+                }
+                ptcb = ptcb->OSTCBNext;
+            }
+        }
     }
     
 }
@@ -676,6 +691,11 @@ static  void  OS_InitMisc (void)
     
     OSCtxSwCtr    = 0;                                           /* Clear the context switch counter         */
     OSIdleCtr     = 0L;                                          /* Clear the 32-bit idle counter            */
+    /* ==================== LAB1 MODIFIED ==================== */
+    OSMsgHead          = 0;
+    OSMsgTail          = 0;
+    OSMissTaskPrio     = 0;
+    OSMissDeadlineTick = 0;
     
 #if (OS_TASK_STAT_EN > 0) && (OS_TASK_CREATE_EXT_EN > 0)
     OSIdleCtrRun  = 0L;
@@ -909,6 +929,11 @@ void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
     INT16U next;
 
     OS_ENTER_CRITICAL();
+    /* ==================== LAB1 MODIFIED ==================== */
+    if ((OSMissTaskPrio != 0) && (OSTime > OSMissDeadlineTick)) {
+        OS_EXIT_CRITICAL();
+        return;
+    }
     next = (INT16U)((OSMsgHead + 1) % OS_SCHED_LOG_SIZE);
 
     // 判斷 buffer 有沒有滿
@@ -942,6 +967,10 @@ void  OS_DumpMsg (void){
         local = OSMsgRing[OSMsgTail];
         OSMsgTail = (INT16U)((OSMsgTail + 1) % OS_SCHED_LOG_SIZE);
         OS_EXIT_CRITICAL();
+        /* ==================== LAB1 MODIFIED ==================== */
+        if ((OSMissTaskPrio != 0) && (local.tick > OSMissDeadlineTick)) {
+            return;
+        }
 
         from_id = (unsigned int)local.fromTaskId;
         to_id   = (unsigned int)local.toTaskId;
@@ -1115,6 +1144,11 @@ INT8U  OS_TCBInit (INT8U prio, OS_STK *ptos, OS_STK *pbos, INT16U id, INT32U stk
         ptcb->OSTCBPrio      = (INT8U)prio;                /* Load task priority into TCB              */
         ptcb->OSTCBStat      = OS_STAT_RDY;                /* Task is ready to run                     */
         ptcb->OSTCBDly       = 0;                          /* Task is not delayed                      */
+        /* ==================== LAB1 MODIFIED ==================== */
+        ptcb->compTime       = 0;
+        ptcb->period         = 0;
+        ptcb->releaseTick    = 0;
+        ptcb->absDeadline    = 0;
 
 #if OS_TASK_CREATE_EXT_EN > 0
         ptcb->OSTCBExtPtr    = pext;                       /* Store pointer to TCB extension           */
