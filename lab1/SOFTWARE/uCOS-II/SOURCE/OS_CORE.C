@@ -185,14 +185,10 @@ void  OSIntExit (void)
             OSIntExitY    = OSUnMapTbl[OSRdyGrp];          /* ... and not locked.                      */
             OSPrioHighRdy = (INT8U)((OSIntExitY << 3) + OSUnMapTbl[OSRdyTbl[OSIntExitY]]);
             if (OSPrioHighRdy != OSPrioCur) {              /* No Ctx Sw if current task is highest rdy */
-                /* ==================== LAB1 MODIFIED ==================== */
-                // Preemption 發生，將 event 寫入 buffer
-                // 第一個參數為 0 代表 preemption event
-                OS_AddMsg(0, OSPrioCur, OSPrioHighRdy); 
-
                 OSTCBHighRdy  = OSTCBPrioTbl[OSPrioHighRdy];
-
                 OSCtxSwCtr++;                              /* Keep track of the number of ctx switches */
+                /* ==================== LAB1 MODIFIED ==================== */
+                OS_AddMsg(0, OSPrioCur, OSPrioHighRdy);  // 0 = Preempt
                 OSIntCtxSw();                              /* Perform interrupt level ctx switch       */
             }
         }
@@ -306,14 +302,6 @@ void  OSStart (void)
         y             = OSUnMapTbl[OSRdyGrp];        /* Find highest priority's task priority number   */
         x             = OSUnMapTbl[OSRdyTbl[y]];
         OSPrioHighRdy = (INT8U)((y << 3) + x);
-#if OS_TIME_GET_SET_EN > 0
-        /* ==================== LAB1 MODIFIED ==================== */
-        // 讓初始 dispatch log 固定從 tick 0 開始
-        OSTime        = 0L;
-#endif
-        /* ==================== LAB1 MODIFIED ==================== */
-        // 記錄系統啟動時第一個被 dispatch 的 task
-        OS_AddMsg(1, 0, OSPrioHighRdy);
         OSPrioCur     = OSPrioHighRdy;
         OSTCBHighRdy  = OSTCBPrioTbl[OSPrioHighRdy]; /* Point to highest priority task ready to run    */
         OSTCBCur      = OSTCBHighRdy;
@@ -688,12 +676,6 @@ static  void  OS_InitMisc (void)
     
     OSCtxSwCtr    = 0;                                           /* Clear the context switch counter         */
     OSIdleCtr     = 0L;                                          /* Clear the 32-bit idle counter            */
-
-    OSMsgHead     = 0;
-    OSMsgTail     = 0;
-    OSMissDeadlineFlag = 0;
-    OSMissTaskPrio = 0;
-    OSMissDeadlineTick = 0;
     
 #if (OS_TASK_STAT_EN > 0) && (OS_TASK_CREATE_EXT_EN > 0)
     OSIdleCtrRun  = 0L;
@@ -929,7 +911,7 @@ void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
     OS_ENTER_CRITICAL();
     next = (INT16U)((OSMsgHead + 1) % OS_SCHED_LOG_SIZE);
 
-    /* buffer full: drop newest */
+    // 判斷 buffer 有沒有滿
     if (next == OSMsgTail) {
         OS_EXIT_CRITICAL();
         return;
@@ -945,44 +927,30 @@ void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
 
 // 從 ring buffer 印出訊息
 void  OS_DumpMsg (void){
-    while (OS_DumpMsgOne() == TRUE) {
-    }
-}
-
-INT8U OS_DumpMsgOne (void){
-#if OS_CRITICAL_METHOD == 3
-    OS_CPU_SR  cpu_sr;
-#endif
     msg local;
     unsigned int from_id;
     unsigned int to_id;
-    static INT8U headerPrinted = FALSE;
 
-    OS_ENTER_CRITICAL();
-    if (OSMsgTail == OSMsgHead) { // buffer 空了
+    for (;;) {
+        
+        OS_ENTER_CRITICAL();
+        if (OSMsgTail == OSMsgHead) { // buffer 空了
+            OS_EXIT_CRITICAL();
+            return;
+        }
+
+        local = OSMsgRing[OSMsgTail];
+        OSMsgTail = (INT16U)((OSMsgTail + 1) % OS_SCHED_LOG_SIZE);
         OS_EXIT_CRITICAL();
-        return (FALSE);
+
+        from_id = (unsigned int)local.fromTaskId;
+        to_id   = (unsigned int)local.toTaskId;
+        printf("%-4lu %-10s %3u %3u\n",
+               (unsigned long)local.tick,
+               (local.event == 0) ? "Preempt" : "Complete",
+               from_id, to_id);
     }
-
-    local = OSMsgRing[OSMsgTail];
-    OSMsgTail = (INT16U)((OSMsgTail + 1) % OS_SCHED_LOG_SIZE);
-    OS_EXIT_CRITICAL();
-
-    if (headerPrinted == FALSE) {
-        printf("Tick Event      From To\n");
-        headerPrinted = TRUE;
-    }
-
-    from_id = (unsigned int)local.fromTaskId;
-    to_id   = (unsigned int)local.toTaskId;
-    printf("%-4lu %-10s %3u %3u\n",
-           (unsigned long)local.tick,
-           (local.event == 0) ? "Preempt" : "Complete",
-           from_id, to_id);
-
-    return (TRUE);
 }
-
 
 /*$PAGE*/
 /*
