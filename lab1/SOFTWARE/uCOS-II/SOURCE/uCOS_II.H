@@ -410,12 +410,12 @@ typedef struct os_tcb {
 #endif
     /* ==================== LAB1 MODIFIED ==================== */
     // 在 TCB 當中新增建立 task 所需要的欄位
-    volatile INT16U compTime;
+    // - volatile: 每次都重新從 memory 抓，避免編譯器優化
+    //   因為 compTime 會在 timeTick() 被減少 所以設成 volatile
+    volatile INT16U compTime; 
     INT16U period;
-    /* ==================== LAB1 MODIFIED ==================== */
-    // 絕對 release/deadline，用於即時 deadline miss 檢查
-    INT32U releaseTick;
-    INT32U absDeadline;
+    INT32U releaseTick; // 每個 task 裡面 job 應該 release 的時間（絕對時間）
+    INT32U absDeadline; // 每個 task 裡面 job 的 deadline (絕對時間)
 } OS_TCB;
 
 /*$PAGE*/
@@ -428,17 +428,18 @@ typedef struct os_tcb {
 #define OS_SCHED_LOG_SIZE 256
 
 typedef struct msg {
-    INT32U tick;          // 當前時間(tick)
-    INT8U event;          // 事件(0=preemt, 1=complete)
-    INT8U fromTaskId;     // 事件發生前 task ID
-    INT8U toTaskId;       // 事件發生後 task ID
+    INT32U tick; // 當前時間(tick)
+    INT8U event; // 事件(0=preemt, 1=complete)
+    INT8U fromTaskId; // 事件發生前 task ID
+    INT8U toTaskId; // 事件發生後 task ID
 } msg;
 
-OS_EXT msg OSMsgRing[OS_SCHED_LOG_SIZE];
-OS_EXT INT16U OSMsgHead;
-OS_EXT INT16U OSMsgTail;
-OS_EXT INT8U  OSMissTaskPrio;
-OS_EXT INT32U OSMissDeadlineTick;
+/* ==================== LAB1 MODIFIED ==================== */
+OS_EXT msg OSMsgRing[OS_SCHED_LOG_SIZE]; // ring buffer 存要 print 的訊息
+OS_EXT INT16U OSMsgHead; // buffer index，代表現在資料存到第幾格
+OS_EXT INT16U OSMsgTail; // buffer index，代表現在讀取到第幾格
+OS_EXT INT8U  OSMissTaskPrio; // 紀錄是哪個 task 超時 （0: 沒有超時）
+OS_EXT INT32U OSMissDeadlineTick; // 紀錄在第幾個 tick 超時
 
 OS_EXT  INT32U            OSCtxSwCtr;               /* Counter of number of context switches           */
 

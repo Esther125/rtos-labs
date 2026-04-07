@@ -7,8 +7,8 @@
 #define N_TASKS 3 // Number of tasks
 
 /* VARIABLES */
-OS_STK TaskStk[N_TASKS][TASK_STK_SIZE]; // Tasks stacks
 OS_STK TaskStartStk[TASK_STK_SIZE];
+OS_STK TaskStk[N_TASKS][TASK_STK_SIZE]; // Tasks stacks
 
 /* FUNCTION PROTOTYPES */
 void TaskStart(void *data); // start up task
@@ -36,6 +36,9 @@ void  main (void){
 
 /* START UP TASK */
 void TaskStart(void *pdata){
+#if OS_CRITICAL_METHOD == 3  // Allocate storage for CPU status register
+    OS_CPU_SR  cpu_sr;
+#endif     
     pdata = pdata;
 
     // Install uC/OS-II's clock tick ISR
@@ -47,9 +50,10 @@ void TaskStart(void *pdata){
     // Create application tasks 
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
-    // OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
+    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
     
-    // 以共同起點(time 0) 初始化每個 task 的 release/deadline
+    // 初始化每個 task 新加的 TCB 欄位
+    // 假設所有 task 都是同時從 tick 0 開始釋放
     OS_ENTER_CRITICAL();
     OSTCBPrioTbl[1]->period      = 3;
     OSTCBPrioTbl[1]->compTime    = 1;
@@ -66,16 +70,21 @@ void TaskStart(void *pdata){
     OSTCBPrioTbl[3]->releaseTick = 0;
     OSTCBPrioTbl[3]->absDeadline = 9;
     OS_EXIT_CRITICAL();
+
+    // 把 tick 歸零
+    OS_ENTER_CRITICAL();
+    OS_TIME = 0;
+    OS_EXIT_CRITICAL();
     
+    // 釋放 CPU
     for(;;){
         CheckEscAndExit();
-        OSTimeDlyHMSM(0, 0, 1, 0);
+        OSTimeDly(100);
     }
 }
 
 void CheckEscAndExit(void){
     INT16S key;
-
     // 檢查有沒有按鍵
     if (PC_GetKey(&key) == TRUE) {
         // 檢查是不是 esc
@@ -87,41 +96,42 @@ void CheckEscAndExit(void){
 
 /* BASETASK */
 void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
+#if OS_CRITICAL_METHOD == 3  // Allocate storage for CPU status register
+    OS_CPU_SR  cpu_sr;
+#endif 
     INT32U now;
     INT32U toDelay; // 等多久下一次 task 才會 release
     taskId = taskId;
 
     while(1){
         CheckEscAndExit();
+        // 檢查有沒有 deadline miss
+        // 有 deadline miss
         if (OSMissTaskPrio != 0) {
             OS_DumpMsg();
-            printf("time:%lu task%lu exceed deadline\n",
+            // 如果這個 task 就是超時的 task 才印出超時訊息
+            if (OSMissTaskPrio == taskId){
+                printf("time:%lu task%lu exceed deadline\n",
                 (unsigned long)OSMissDeadlineTick,
                 (unsigned long)OSMissTaskPrio
             );
-            PC_DOSReturn();
+            }
+            OSTaskSuspend(OS_PRIO_SELF); // 把 task 停掉
         }
 
+        // 沒有 deadline miss
         while(OSTCBCur -> compTime > 0){ 
-            // busy waiting
-            if (OSMissTaskPrio != 0) {
-                OS_DumpMsg();
-                printf("time:%lu task%lu exceed deadline\n",
-                    (unsigned long)OSMissDeadlineTick,
-                    (unsigned long)OSMissTaskPrio
-                );
-                PC_DOSReturn();
-            }
+            // busy waiting 等 compute time 消耗
         }
         OS_DumpMsg();
 
-        // 依絕對 release/deadline 切到下一個 job，避免 phase drift
+        // 準備下一個 job
         OS_ENTER_CRITICAL();
         OSTCBCur -> releaseTick += period;
         OSTCBCur -> absDeadline += period;
-        OSTCBCur -> compTime = compTime;
+        OSTCBCur -> compTime = compTime; // compute time 重置
         now = OSTimeGet();
-        if (now < OSTCBCur->releaseTick){
+        if (now < OSTCBCur->releaseTick){ // 還沒到下一個 job release 的時間
             toDelay = OSTCBCur->releaseTick - now;
         } else {
             toDelay = 0;
