@@ -409,9 +409,13 @@ typedef struct os_tcb {
     BOOLEAN        OSTCBDelReq;        /* Indicates whether a task needs to delete itself              */
 #endif
     /* ==================== LAB1 MODIFIED ==================== */
-    /* RM scheduling fields */
-    INT16S computeTime;
+    // 在 TCB 當中新增建立 task 所需要的欄位
+    // - volatile: 每次都重新從 memory 抓，避免編譯器優化
+    //   因為 compTime 會在 timeTick() 被減少 所以設成 volatile
+    volatile INT16U compTime; 
     INT16U period;
+    INT32U releaseTick; // 每個 task 裡面 job 應該 release 的時間（絕對時間）
+    INT32U absDeadline; // 每個 task 裡面 job 的 deadline (絕對時間)
 } OS_TCB;
 
 /*$PAGE*/
@@ -421,17 +425,22 @@ typedef struct os_tcb {
 *********************************************************************************************************
 */
 /* ==================== LAB1 MODIFIED ==================== */
-/* schedule event log structures */
-typedef struct _msg {
-    int tick;           // 當前時間(tick)
-    int event;          // 事件(0=preemt, 1=complete)
-    int fromTaskId;     // 事件發生前 task ID
-    int toTaskId;       // 事件發生後 task ID
-    struct _msg *next;
+#define OS_SCHED_LOG_SIZE 256
+
+typedef struct msg {
+    INT32U tick; // 當前時間(tick)
+    INT8U event; // 事件(0=preemt, 1=complete)
+    INT8U fromTaskId; // 事件發生前 task ID
+    INT8U toTaskId; // 事件發生後 task ID
 } msg;
 
-OS_EXT msg *msgList;    // 訊息佇列 (linked list)
-OS_EXT msg* msgTemp;    // 訊息佇列暫存變數
+/* ==================== LAB1 MODIFIED ==================== */
+OS_EXT msg OSMsgRing[OS_SCHED_LOG_SIZE]; // ring buffer 存要 print 的訊息
+OS_EXT INT16U OSMsgHead; // buffer index，代表現在資料存到第幾格
+OS_EXT INT16U OSMsgTail; // buffer index，代表現在讀取到第幾格
+OS_EXT INT8U  OSMissTaskPrio; // 紀錄是哪個 task 超時 （0: 沒有超時）
+OS_EXT INT32U OSMissDeadlineTick; // 紀錄在第幾個 tick 超時
+
 OS_EXT  INT32U            OSCtxSwCtr;               /* Counter of number of context switches           */
 
 #if (OS_EVENT_EN > 0) && (OS_MAX_EVENTS > 0)
@@ -801,9 +810,10 @@ void          OS_QInit(void);
 #endif
 
 void          OS_Sched(void);
+
 /* ==================== LAB1 MODIFIED ==================== */
-/* append one schedule event node */
-void          OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+void OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+void OS_DumpMsg(void);
 
 void          OS_TaskIdle(void *data);
 
