@@ -189,9 +189,8 @@ void  OSIntExit (void)
                 OSCtxSwCtr++;                              /* Keep track of the number of ctx switches */
                 /* ==================== LAB1 MODIFIED ==================== */
                 // 紀錄 preempt 事件
-                if(OSMissTaskPrio == 0){ // 確認沒有 deadline miss
-                    OS_AddMsg(0, OSPrioCur, OSPrioHighRdy);  // 0 = Preempt
-                }
+                OS_AddMsg(0, OSPrioCur, OSPrioHighRdy);  // 0 = Preempt
+                
                 OSIntCtxSw();                              /* Perform interrupt level ctx switch       */
             }
         }
@@ -919,9 +918,7 @@ void  OS_Sched (void)
             OSCtxSwCtr++;                              /* Increment context switch counter             */
             /* ==================== LAB1 MODIFIED ==================== */
             // 紀錄 complete 事件
-            if(OSMissTaskPrio == 0){ // 確認沒有 deadline miss
-                OS_AddMsg(1, OSPrioCur, OSPrioHighRdy); // 1: complete
-            }
+            OS_AddMsg(1, OSPrioCur, OSPrioHighRdy); // 1: complete
 
             OS_TASK_SW();                              /* Perform a context switch                     */
         }
@@ -977,7 +974,7 @@ void  OS_DumpMsg (void){
         local = OSMsgRing[OSMsgTail];
         OSMsgTail = (INT16U)((OSMsgTail + 1) % OS_SCHED_LOG_SIZE);
         OS_EXIT_CRITICAL();
-        
+
         // 如果系統已經發生過 deadline miss 或 event 發生時間比 miss tick 晚就不紀錄
         if ((OSMissTaskPrio != 0) && (local.tick > OSMissDeadlineTick)) {
             return;

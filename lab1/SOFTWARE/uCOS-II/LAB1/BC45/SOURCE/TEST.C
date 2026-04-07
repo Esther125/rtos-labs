@@ -73,7 +73,8 @@ void TaskStart(void *pdata){
 
     // 把 tick 歸零
     OS_ENTER_CRITICAL();
-    OS_TIME = 0;
+    // Old version: OS_TIME = 0;
+    OSTimeSet(0);
     OS_EXIT_CRITICAL();
     
     // 釋放 CPU
@@ -109,14 +110,11 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
         // 有 deadline miss
         if (OSMissTaskPrio != 0) {
             OS_DumpMsg();
-            // 如果這個 task 就是超時的 task 才印出超時訊息
-            if (OSMissTaskPrio == taskId){
-                printf("time:%lu task%lu exceed deadline\n",
-                (unsigned long)OSMissDeadlineTick,
-                (unsigned long)OSMissTaskPrio
-            );
-            }
-            OSTaskSuspend(OS_PRIO_SELF); // 把 task 停掉
+            printf("time:%lu task%lu exceed deadline\n",
+            (unsigned long)OSMissDeadlineTick,
+            (unsigned long)OSMissTaskPrio);
+            // 開發板：OSTaskSuspend(OS_PRIO_SELF); // 把 task 停掉
+            PC_DOSReturn();
         }
 
         // 沒有 deadline miss
