@@ -405,6 +405,13 @@ typedef struct os_tcb {
     INT8U          OSTCBBitX;          /* Bit mask to access bit position in ready table               */
     INT8U          OSTCBBitY;          /* Bit mask to access bit position in ready group               */
 
+    /* ==================== LAB2 MODIFIED ==================== */
+    // TCB 新增變數
+    INT16U compTime; 
+    INT16U period;
+    INT32U deadline;
+    INT32U releaseTick;
+
 #if OS_TASK_DEL_EN > 0
     BOOLEAN        OSTCBDelReq;        /* Indicates whether a task needs to delete itself              */
 #endif
@@ -416,6 +423,26 @@ typedef struct os_tcb {
 *                                            GLOBAL VARIABLES
 *********************************************************************************************************
 */
+
+/* ==================== LAB2 MODIFIED ==================== */
+// MSG STRUCTURE
+#define OS_SCHED_LOG_SIZE 256
+
+typedef struct msg {
+    INT32U tick; // 當前時間(tick)
+    INT8U event; // 事件(0=preemt, 1=complete)
+    INT8U fromTaskId; // 事件發生前 task ID
+    INT8U toTaskId; // 事件發生後 task ID
+} msg;
+
+/* ==================== LAB2 MODIFIED ==================== */
+// OTHER GLOBAL VARIABLES
+OS_EXT msg OSMsgRing[OS_SCHED_LOG_SIZE]; // ring buffer 存要 print 的訊息
+OS_EXT INT16U OSMsgHead; // buffer index，代表現在資料存到第幾格
+OS_EXT INT16U OSMsgTail; // buffer index，代表現在讀取到第幾格
+OS_EXT INT8U  OSMissTaskPrio; // 紀錄是哪個 task 超時 （0: 沒有超時）
+OS_EXT INT32U OSMissDeadlineTick; // 紀錄在第幾個 tick 超時
+
 
 OS_EXT  INT32U            OSCtxSwCtr;               /* Counter of number of context switches           */
 
@@ -788,6 +815,11 @@ void          OS_QInit(void);
 void          OS_Sched(void);
 
 void          OS_TaskIdle(void *data);
+
+/* ==================== LAB2 MODIFIED ==================== */
+// CUSTOM FUNCTION PROTOTYPE
+void OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+void OS_DumpMsg(void);
 
 #if OS_TASK_STAT_EN > 0
 void          OS_TaskStat(void *data);
