@@ -1,0 +1,9 @@
+create err1=0 err2=0 err3=0 err4=0
+  0  Complete    0    1
+  1  Complete    1    2
+  3  Complete    2    3
+  4  Preempt     3    1
+  5  Complete    1    3
+  6  Complete    3    2
+  8  Complete    2    1
+  9  Complete    1    4
