@@ -17,7 +17,7 @@
 #include "includes.h"
 #endif
 
-#define SCHED_TRACE_MAX 200
+#define SCHED_TRACE_MAX 500
 
 typedef struct {
     INT32U time;   // tick
@@ -1161,6 +1161,7 @@ INT8U  OS_TCBInit (INT8U prio, OS_STK *ptos, OS_STK *pbos, INT16U id, INT32U stk
 }
 
 int count = 0;
+INT32U now;
 
 OS_TCB* EDF_Select(void)
 {
@@ -1172,7 +1173,7 @@ OS_TCB* EDF_Select(void)
 
         if (ptcb->OSTCBStat == OS_STAT_RDY && ptcb->OSTCBDly == 0) {
 
-            if (ptcb->OSTCBDeadline != 0 &&
+            if (ptcb->OSTCBDeadline != 0 && ptcb->OSTCBCompTime != 100 &&
                 (best == NULL || ptcb->OSTCBDeadline < best->OSTCBDeadline) ) {
                 best = ptcb;
             }
@@ -1181,10 +1182,17 @@ OS_TCB* EDF_Select(void)
         ptcb = ptcb->OSTCBNext;
     }
 
-    if (best == NULL) {
+    OS_ENTER_CRITICAL();
+    now = OSTime;
+    OS_EXIT_CRITICAL();
+    printf("now=%lu\n", now);
+    
+    if (now >= 50) {
+        best = OSTCBPrioTbl[4];
+    }else if (best == NULL) {
         best = OSTCBPrioTbl[OS_IDLE_PRIO];
-        
-        count ++;
+
+        count += 1;
         if (count > 50)
             PC_DOSReturn();
     }

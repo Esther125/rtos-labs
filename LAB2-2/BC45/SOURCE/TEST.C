@@ -82,9 +82,9 @@ void TaskStart(void *pdata)
     OSTCBPrioTbl[3]->OSTCBPeriod   = 10;
     OSTCBPrioTbl[3]->OSTCBDeadline = now + 10;
 
-    OSTCBPrioTbl[4]->OSTCBCompTime = 10;
+    OSTCBPrioTbl[4]->OSTCBCompTime = 100;
     OSTCBPrioTbl[4]->OSTCBPeriod   = 100;
-    OSTCBPrioTbl[4]->OSTCBDeadline = now + 100;
+    OSTCBPrioTbl[4]->OSTCBDeadline = now + 1000;
 
     OSSchedUnlock();
 
@@ -179,6 +179,7 @@ void Task(void *pdata)
         OS_EXIT_CRITICAL();
 
         if (trace_done) {
+            printf("Task done\n");
             OSTaskSuspend(OS_PRIO_SELF);
         }
 
