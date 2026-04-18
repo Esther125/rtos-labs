@@ -10,7 +10,7 @@ typedef struct {
 extern volatile sched_event_t sched_trace[];
 extern volatile int sched_trace_idx;
 volatile INT8U trace_done = 0;
-volatile INT8U trace_printed = 0;
+volatile INT8U trace_printed = 2;
 #define TASK_STK_SIZE 512
 
 OS_STK TaskStk[2][TASK_STK_SIZE];
@@ -65,9 +65,9 @@ void TaskStart(void *pdata)
 
     err1 = OSTaskCreate(Task, (void *)1, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     err2 = OSTaskCreate(Task, (void *)2, &TaskStk[1][TASK_STK_SIZE - 1], 2);
-    err3 = OSTaskCreate(PrintTask, (void *)3, &PrintTaskStk[TASK_STK_SIZE - 1], 3);
+    //err3 = OSTaskCreate(PrintTask, (void *)3, &PrintTaskStk[TASK_STK_SIZE - 1], 3);
 
-    printf("create err1=%d err2=%d err3=%d\n", err1, err2, err3);
+    printf("create err1=%d err2=%d\n", err1, err2);
 
     OSTCBPrioTbl[1]->OSTCBCompTime = 1;
     OSTCBPrioTbl[1]->OSTCBPeriod   = 3;
@@ -76,10 +76,6 @@ void TaskStart(void *pdata)
     OSTCBPrioTbl[2]->OSTCBCompTime = 3;
     OSTCBPrioTbl[2]->OSTCBPeriod   = 5;
     OSTCBPrioTbl[2]->OSTCBDeadline = now + 5;
-
-    OSTCBPrioTbl[3]->OSTCBCompTime = 10;
-    OSTCBPrioTbl[3]->OSTCBPeriod   = 100;
-    OSTCBPrioTbl[3]->OSTCBDeadline = now + 100;
 
     OSSchedUnlock();
 
@@ -156,17 +152,34 @@ void Task(void *pdata)
        OSTCBCur->OSTCBDeadline,
        OSTimeGet());*/
 
-       start += P;
+        start += P;
 
         OS_ENTER_CRITICAL();
         OSTCBCur->OSTCBCompTime = C;
         OSTCBCur->OSTCBDeadline += P;
+        total_runs++;
         OS_EXIT_CRITICAL();
+        
 
         OS_ENTER_CRITICAL();
-        total_runs++;
         if (total_runs >= MAX_RUNS) {
             trace_done = 1;
+            //printf("Task done\n");
+
+            if (trace_printed > 0) {
+                trace_printed--;
+                if (trace_printed == 0) {
+
+                    OSTaskCreate(PrintTask, (void *)3,
+                        &PrintTaskStk[TASK_STK_SIZE - 1], 3);
+
+                    OSTCBPrioTbl[3]->OSTCBCompTime = 10;
+                    OSTCBPrioTbl[3]->OSTCBPeriod   = 100;
+                    OSTCBPrioTbl[3]->OSTCBDeadline = OSTimeGet() + 100;
+                }
+            }
+
+            OSTaskSuspend(OS_PRIO_SELF);
         }
         OS_EXIT_CRITICAL();
 
@@ -185,7 +198,7 @@ void PrintTask(void *pdata)
     INT16S key;
     pdata = pdata;
 
-    printf("PrintTask started\n");
+    //printf("PrintTask started\n");
 
     PrintTrace();
     PC_DOSReturn();

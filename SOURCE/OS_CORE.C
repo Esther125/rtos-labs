@@ -1161,7 +1161,6 @@ INT8U  OS_TCBInit (INT8U prio, OS_STK *ptos, OS_STK *pbos, INT16U id, INT32U stk
 }
 
 int count = 0;
-INT32U now;
 
 OS_TCB* EDF_Select(void)
 {
@@ -1173,7 +1172,7 @@ OS_TCB* EDF_Select(void)
 
         if (ptcb->OSTCBStat == OS_STAT_RDY && ptcb->OSTCBDly == 0) {
 
-            if (ptcb->OSTCBDeadline != 0 && ptcb->OSTCBCompTime != 100 &&
+            if (ptcb->OSTCBDeadline != 0 &&
                 (best == NULL || ptcb->OSTCBDeadline < best->OSTCBDeadline) ) {
                 best = ptcb;
             }
@@ -1182,14 +1181,7 @@ OS_TCB* EDF_Select(void)
         ptcb = ptcb->OSTCBNext;
     }
 
-    OS_ENTER_CRITICAL();
-    now = OSTime;
-    OS_EXIT_CRITICAL();
-    printf("now=%lu\n", now);
-    
-    if (now >= 50) {
-        best = OSTCBPrioTbl[4];
-    }else if (best == NULL) {
+    if (best == NULL) {
         best = OSTCBPrioTbl[OS_IDLE_PRIO];
 
         count += 1;
