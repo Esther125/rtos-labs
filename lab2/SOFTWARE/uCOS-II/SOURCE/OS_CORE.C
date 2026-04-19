@@ -178,6 +178,7 @@ void  OSIntExit (void)
     OS_CPU_SR  cpu_sr;
 #endif
     INT8U      y;
+    OS_TCB    *next;
     
     
     if (OSRunning == TRUE) {
@@ -186,11 +187,13 @@ void  OSIntExit (void)
             OSIntNesting--;
         }
         if ((OSIntNesting == 0) && (OSLockNesting == 0)) { /* Reschedule only if all ISRs complete ... */
-            // OSIntExitY    = OSUnMapTbl[OSRdyGrp];          /* ... and not locked.                      */
-            // OSPrioHighRdy = (INT8U)((OSIntExitY << 3) + OSUnMapTbl[OSRdyTbl[OSIntExitY]]);
-            
             /* ==================== LAB2 MODIFIED ==================== */
-            OS_TCB *next;
+            // 忽略 compTime 已經被扣到 0 但還沒執行到 delay 的 tasks
+            if ((OSTCBCur->period > 0) && (OSTCBCur->compTime == 0)) {
+                OS_EXIT_CRITICAL();
+                return;
+            }
+
             next = OS_EDF(OSTCBList);
 
             if (next == (OS_TCB *)0) {

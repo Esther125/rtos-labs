@@ -50,7 +50,8 @@ void TaskStart(void *pdata){
     // Create application tasks 
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
-    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
+    // Testset2
+    // OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
     
     // 把 tick 歸零
     OS_ENTER_CRITICAL();
@@ -120,14 +121,13 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
         OSTCBCur -> deadline += period;
         OSTCBCur -> compTime = compTime; // compute time 重置
         now = OSTimeGet();
-        OS_EXIT_CRITICAL();
-
         if (now < OSTCBCur->releaseTick){ // 還沒到下一個 job release 的時間
             toDelay = OSTCBCur->releaseTick - now;
         } else {
             toDelay = 0;
         }
-
+        OS_EXIT_CRITICAL();
+        
         if (toDelay > 0){
             OSTimeDly(toDelay);
         }
@@ -138,17 +138,24 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
 /* APPLICATION TASKS */
 void Task1(void *pdata){
     pdata = pdata;
-    // BaseTask(1, 1, 3);
-    BaseTask(1, 1, 4);
+    // Testset1
+    BaseTask(1, 1, 3);
+
+    // Testset2
+    // BaseTask(1, 1, 4);
 }
 
 void Task2(void *pdata){
     pdata = pdata;
-    // BaseTask(2, 3, 5);
-    BaseTask(2, 2, 5);
+    // Testset1
+    BaseTask(2, 3, 5);
+
+    // Testset2
+    // BaseTask(2, 2, 5);
 }
 
 void Task3(void *pdata){
     pdata = pdata;
-    BaseTask(3, 2, 10);
+    // Testset2
+    // BaseTask(3, 2, 10);
 }
