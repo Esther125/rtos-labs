@@ -271,7 +271,7 @@ void PC_DOSSaveReturn (void)
         PC_SetTickRate(18);                                /* Restore tick rate to 18.2 Hz             */
         OS_EXIT_CRITICAL();
         PC_VectSet(VECT_TICK, PC_TickISR);                 /* Restore DOS's tick vector                */
-        PC_DispClrScr(DISP_FGND_WHITE + DISP_BGND_BLACK);  /* Clear the display                        */
+        // PC_DispClrScr(DISP_FGND_WHITE + DISP_BGND_BLACK);  /* Clear the display                        */
         exit(0);                                           /* Return to DOS                            */
     }
 }

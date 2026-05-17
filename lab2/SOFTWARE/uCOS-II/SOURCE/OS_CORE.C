@@ -67,6 +67,9 @@ static  void  OS_InitRdyList(void);
 static  void  OS_InitTaskIdle(void);
 static  void  OS_InitTaskStat(void);
 static  void  OS_InitTCBList(void);
+        OS_TCB *OS_EDF(OS_TCB *curr);
+        void OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+        void OS_DumpMsg(void);
 
 /*$PAGE*/
 /*
@@ -174,6 +177,8 @@ void  OSIntExit (void)
 #if OS_CRITICAL_METHOD == 3                                /* Allocate storage for CPU status register */
     OS_CPU_SR  cpu_sr;
 #endif
+    INT8U      y;
+    OS_TCB    *next;
     
     
     if (OSRunning == TRUE) {
@@ -182,12 +187,33 @@ void  OSIntExit (void)
             OSIntNesting--;
         }
         if ((OSIntNesting == 0) && (OSLockNesting == 0)) { /* Reschedule only if all ISRs complete ... */
-            OSIntExitY    = OSUnMapTbl[OSRdyGrp];          /* ... and not locked.                      */
-            OSPrioHighRdy = (INT8U)((OSIntExitY << 3) + OSUnMapTbl[OSRdyTbl[OSIntExitY]]);
-            if (OSPrioHighRdy != OSPrioCur) {              /* No Ctx Sw if current task is highest rdy */
-                OSTCBHighRdy  = OSTCBPrioTbl[OSPrioHighRdy];
-                OSCtxSwCtr++;                              /* Keep track of the number of ctx switches */
-                OSIntCtxSw();                              /* Perform interrupt level ctx switch       */
+            /* ==================== LAB2 MODIFIED ==================== */
+            // 忽略 compTime 已經被扣到 0 但還沒執行到 delay 的 tasks
+            if ((OSTCBCur->period > 0) && (OSTCBCur->compTime == 0)) {
+                OS_EXIT_CRITICAL();
+                return;
+            }
+
+            next = OS_EDF(OSTCBList);
+
+            if (next == (OS_TCB *)0) {
+                y             = OSUnMapTbl[OSRdyGrp];
+                OSPrioHighRdy = (INT8U)((y << 3) + OSUnMapTbl[OSRdyTbl[y]]);
+                next          = OSTCBPrioTbl[OSPrioHighRdy];
+            }
+            if (next != (OS_TCB *)0) {
+                OSPrioHighRdy = next->OSTCBPrio;
+                if (OSPrioHighRdy != OSPrioCur) {              /* No Ctx Sw if current task is highest rdy */
+                    OSTCBHighRdy = next;
+                    /* 紀錄 preempt/complete 事件 */
+                    if ((OSTCBCur->compTime != 0) || (OSPrioCur == OS_IDLE_PRIO)) {             /* 剛好用完 compTime 會是 complete event     */
+                        OS_AddMsg(0, OSPrioCur, OSPrioHighRdy);
+                    } else {
+                        OS_AddMsg(1, OSPrioCur, OSPrioHighRdy);
+                    }
+                    OSCtxSwCtr++;                              /* Keep track of the number of ctx switches */
+                    OSIntCtxSw();                              /* Perform interrupt level ctx switch       */
+                }
             }
         }
         OS_EXIT_CRITICAL();
@@ -293,15 +319,24 @@ void  OSSchedUnlock (void)
 void  OSStart (void)
 {
     INT8U y;
-    INT8U x;
+    // INT8U x;
 
 
     if (OSRunning == FALSE) {
-        y             = OSUnMapTbl[OSRdyGrp];        /* Find highest priority's task priority number   */
-        x             = OSUnMapTbl[OSRdyTbl[y]];
-        OSPrioHighRdy = (INT8U)((y << 3) + x);
+        OS_TCB *next;
+        next = OS_EDF(OSTCBList);
+        if (next == (OS_TCB *)0) {
+            y = OSUnMapTbl[OSRdyGrp];
+            OSPrioHighRdy = (INT8U)((y << 3) + OSUnMapTbl[OSRdyTbl[y]]);
+            next = OSTCBPrioTbl[OSPrioHighRdy];
+        }
+        if (next == (OS_TCB *)0) {
+            return;
+        }
+        OSPrioHighRdy = next -> OSTCBPrio;
         OSPrioCur     = OSPrioHighRdy;
-        OSTCBHighRdy  = OSTCBPrioTbl[OSPrioHighRdy]; /* Point to highest priority task ready to run    */
+        // OSTCBHighRdy  = OSTCBPrioTbl[OSPrioHighRdy]; /* Point to highest priority task ready to run    */
+        OSTCBHighRdy = next;
         OSTCBCur      = OSTCBHighRdy;
         OSStartHighRdy();                            /* Execute target specific code to start task     */
     }
@@ -377,7 +412,8 @@ void  OSTimeTick (void)
 #endif
     if (OSRunning == TRUE) {    
         ptcb = OSTCBList;                                  /* Point at first TCB in TCB list           */
-        while (ptcb->OSTCBPrio != OS_IDLE_PRIO) {          /* Go through all TCBs in TCB list          */
+        /* ==================== LAB2 MODIFIED ==================== */
+        while ((ptcb != (OS_TCB *)0) && (ptcb->OSTCBPrio != OS_IDLE_PRIO)) { /* Go through all TCBs in TCB list */
             OS_ENTER_CRITICAL();
             if (ptcb->OSTCBDly != 0) {                     /* Delayed or waiting for event with TO     */
                 if (--ptcb->OSTCBDly == 0) {               /* Decrement nbr of ticks to end of delay   */
@@ -391,6 +427,31 @@ void  OSTimeTick (void)
             }
             ptcb = ptcb->OSTCBNext;                        /* Point at next TCB in TCB list            */
             OS_EXIT_CRITICAL();
+        }
+
+        /* ==================== LAB2 MODIFIED ==================== */
+        // 消耗 task 的執行時間
+        // 每過一個 tick 減一
+        if (OSTCBCur->compTime > 0) {
+            OSTCBCur->compTime--;
+        }
+        /* ==================== LAB2 MODIFIED ==================== */
+        // 檢查有沒有 task 超過 deadline 
+        // 如果有的話記錄到 global var (OSMissTaskPrio, OSMissDeadlineTick)
+        if (OSMissTaskPrio == 0) { // 確認系統還沒有過任何 miss
+            ptcb = OSTCBList;
+            /* ==================== LAB2 MODIFIED ==================== */
+            while ((ptcb != (OS_TCB *)0) && (ptcb->OSTCBPrio != OS_IDLE_PRIO)) {
+                // 只檢查 application tasks
+                if ((ptcb->period > 0) &&
+                    (ptcb->compTime > 0) &&
+                    (OSTime >= ptcb->deadline)) {
+                    OSMissTaskPrio     = ptcb->OSTCBPrio;
+                    OSMissDeadlineTick = ptcb->deadline;
+                    break;
+                }
+                ptcb = ptcb->OSTCBNext;
+            }
         }
     }
 }
@@ -667,6 +728,12 @@ static  void  OS_InitMisc (void)
     
     OSCtxSwCtr    = 0;                                           /* Clear the context switch counter         */
     OSIdleCtr     = 0L;                                          /* Clear the 32-bit idle counter            */
+    /* ==================== LAB2 MODIFIED ==================== */
+    // 初始化 global variable
+    OSMissTaskPrio = 0;
+    OSMissDeadlineTick = 0L;
+    OSMsgHead = 0;
+    OSMsgTail = 0;
 
 #if (OS_TASK_STAT_EN > 0) && (OS_TASK_CREATE_EXT_EN > 0)
     OSIdleCtrRun  = 0L;
@@ -873,19 +940,98 @@ void  OS_Sched (void)
 #endif    
     INT8U      y;
 
-
     OS_ENTER_CRITICAL();
     if ((OSIntNesting == 0) && (OSLockNesting == 0)) { /* Sched. only if all ISRs done & not locked    */
-        y             = OSUnMapTbl[OSRdyGrp];          /* Get pointer to HPT ready to run              */
-        OSPrioHighRdy = (INT8U)((y << 3) + OSUnMapTbl[OSRdyTbl[y]]);
-        if (OSPrioHighRdy != OSPrioCur) {              /* No Ctx Sw if current task is highest rdy     */
-            OSTCBHighRdy = OSTCBPrioTbl[OSPrioHighRdy];
-            OSCtxSwCtr++;                              /* Increment context switch counter             */
-            OS_TASK_SW();                              /* Perform a context switch                     */
+        // y             = OSUnMapTbl[OSRdyGrp];          /* Get pointer to HPT ready to run              */
+        // OSPrioHighRdy = (INT8U)((y << 3) + OSUnMapTbl[OSRdyTbl[y]]);
+        
+        /* ==================== LAB2 MODIFIED ==================== */
+        OS_TCB *next;
+        next = OS_EDF(OSTCBList);
+
+        if (next == (OS_TCB *)0) {
+            y             = OSUnMapTbl[OSRdyGrp];
+            OSPrioHighRdy = (INT8U)((y << 3) + OSUnMapTbl[OSRdyTbl[y]]);
+            next          = OSTCBPrioTbl[OSPrioHighRdy];
+        }
+        if (next != (OS_TCB *)0) {
+            OSPrioHighRdy = next->OSTCBPrio;
+            if (OSPrioHighRdy != OSPrioCur) {              /* No Ctx Sw if current task is highest rdy     */
+                OSTCBHighRdy = next;
+                OSCtxSwCtr++;                              /* Increment context switch counter             */
+                // 紀錄 complete 事件
+                OS_AddMsg(1, OSPrioCur, OSPrioHighRdy); // 1: complete
+                OS_TASK_SW();                              /* Perform a context switch                     */
+            }
         }
     }
     OS_EXIT_CRITICAL();
 }
+
+
+/* ==================== LAB2 MODIFIED ==================== */
+// 把排程事件寫到 ring buffer 
+void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
+#if OS_CRITICAL_METHOD == 3
+    OS_CPU_SR  cpu_sr;
+#endif
+    INT16U next;
+
+    // 如果系統已經發生過 deadline miss 或 event 發生時間比 miss tick 晚就不紀錄
+    OS_ENTER_CRITICAL();
+    if ((OSMissTaskPrio != 0) && (OSTime > OSMissDeadlineTick)) {
+        OS_EXIT_CRITICAL();
+        return;
+    }
+    next = (INT16U)((OSMsgHead + 1) % OS_SCHED_LOG_SIZE);
+
+    // 判斷 buffer 有沒有滿
+    if (next == OSMsgTail) {
+        OS_EXIT_CRITICAL();
+        return;
+    }
+
+    OSMsgRing[OSMsgHead].tick       = OSTimeGet();
+    OSMsgRing[OSMsgHead].event      = event;
+    OSMsgRing[OSMsgHead].fromTaskId = fromTaskId;
+    OSMsgRing[OSMsgHead].toTaskId   = toTaskId;
+    OSMsgHead = next;
+    OS_EXIT_CRITICAL();
+}
+
+/* ==================== LAB2 MODIFIED ==================== */
+// 從 ring buffer 印出訊息
+void  OS_DumpMsg (void){
+    msg local;
+    unsigned int from_id;
+    unsigned int to_id;
+
+    for (;;) {
+        
+        OS_ENTER_CRITICAL();
+        if (OSMsgTail == OSMsgHead) { // buffer 空了
+            OS_EXIT_CRITICAL();
+            return;
+        }
+
+        local = OSMsgRing[OSMsgTail];
+        OSMsgTail = (INT16U)((OSMsgTail + 1) % OS_SCHED_LOG_SIZE);
+        OS_EXIT_CRITICAL();
+
+        // 如果系統已經發生過 deadline miss 或 event 發生時間比 miss tick 晚就不紀錄
+        if ((OSMissTaskPrio != 0) && (local.tick > OSMissDeadlineTick)) {
+            return;
+        }
+
+        from_id = (unsigned int)local.fromTaskId;
+        to_id   = (unsigned int)local.toTaskId;
+        printf("%-4lu %-10s %3u %3u\n",
+               (unsigned long)local.tick,
+               (local.event == 0) ? "Preempt" : "Complete",
+               from_id, to_id);
+    }
+}
+
 /*$PAGE*/
 /*
 *********************************************************************************************************
@@ -1049,6 +1195,12 @@ INT8U  OS_TCBInit (INT8U prio, OS_STK *ptos, OS_STK *pbos, INT16U id, INT32U stk
         ptcb->OSTCBPrio      = (INT8U)prio;                /* Load task priority into TCB              */
         ptcb->OSTCBStat      = OS_STAT_RDY;                /* Task is ready to run                     */
         ptcb->OSTCBDly       = 0;                          /* Task is not delayed                      */
+        /* ==================== LAB2 MODIFIED ==================== */
+        // 初始化 tcb variable
+        ptcb->compTime       = 0;
+        ptcb->period         = 0;
+        ptcb->deadline       = 0;
+        ptcb->releaseTick    = 0;
 
 #if OS_TASK_CREATE_EXT_EN > 0
         ptcb->OSTCBExtPtr    = pext;                       /* Store pointer to TCB extension           */
@@ -1106,4 +1258,25 @@ INT8U  OS_TCBInit (INT8U prio, OS_STK *ptos, OS_STK *pbos, INT16U id, INT32U stk
     }
     OS_EXIT_CRITICAL();
     return (OS_NO_MORE_TCB);
+}
+
+/* ==================== LAB2 MODIFIED ==================== */
+OS_TCB* OS_EDF(OS_TCB *curr){
+    /* 這個 function 會掃過 TCBList 選出 deadline 最接近的 */
+    OS_TCB *next = NULL;
+
+    if (OSMissTaskPrio == 0) { // 確認系統還沒有過任何 miss
+        while (curr != NULL) {
+            // 只從可執行（在 ready table 內、ready 且沒有 delay）的 task 裡面挑
+            if ((curr->OSTCBStat == OS_STAT_RDY) &&
+                (curr->OSTCBDly  == 0)) {
+                if ((curr->period > 0) && (curr->compTime > 0) &&
+                    ((next == (OS_TCB *)0) || (curr->deadline < next->deadline))) {
+                    next = curr;
+                }
+            } 
+            curr = curr->OSTCBNext;
+        }
+    }
+    return next;
 }
