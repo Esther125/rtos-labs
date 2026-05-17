@@ -189,7 +189,7 @@ void  OSIntExit (void)
                 OSCtxSwCtr++;                              /* Keep track of the number of ctx switches */
                 /* ==================== LAB1 MODIFIED ==================== */
                 // 紀錄 preempt 事件
-                OS_AddMsg(0, OSPrioCur, OSPrioHighRdy);  // 0 = Preempt
+                OS_AddMsg(0, 0, OSPrioCur, OSPrioHighRdy);  // 0 = Preempt
                 
                 OSIntCtxSw();                              /* Perform interrupt level ctx switch       */
             }
@@ -918,7 +918,7 @@ void  OS_Sched (void)
             OSCtxSwCtr++;                              /* Increment context switch counter             */
             /* ==================== LAB1 MODIFIED ==================== */
             // 紀錄 complete 事件
-            OS_AddMsg(1, OSPrioCur, OSPrioHighRdy); // 1: complete
+            OS_AddMsg(1, 0, OSPrioCur, OSPrioHighRdy); // 1: complete
 
             OS_TASK_SW();                              /* Perform a context switch                     */
         }
@@ -926,9 +926,9 @@ void  OS_Sched (void)
     OS_EXIT_CRITICAL();
 }
 
-/* ==================== LAB1 MODIFIED ==================== */
+/* ==================== LAB3 MODIFIED ==================== */
 // 把排程事件寫到 ring buffer 
-void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
+void OS_AddMsg(INT8U event, INT8U resource, INT8U from, INT8U to){
 #if OS_CRITICAL_METHOD == 3
     OS_CPU_SR  cpu_sr;
 #endif
@@ -948,10 +948,11 @@ void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
         return;
     }
 
-    OSMsgRing[OSMsgHead].tick       = OSTimeGet();
-    OSMsgRing[OSMsgHead].event      = event;
-    OSMsgRing[OSMsgHead].fromTaskId = fromTaskId;
-    OSMsgRing[OSMsgHead].toTaskId   = toTaskId;
+    OSMsgRing[OSMsgHead].tick = OSTimeGet();
+    OSMsgRing[OSMsgHead].event = event;
+    OSMsgRing[OSMsgHead].resource = resource;
+    OSMsgRing[OSMsgHead].from = from;
+    OSMsgRing[OSMsgHead].to = to;
     OSMsgHead = next;
     OS_EXIT_CRITICAL();
 }
@@ -960,8 +961,8 @@ void  OS_AddMsg (INT8U event, INT8U fromTaskId, INT8U toTaskId){
 // 從 ring buffer 印出訊息
 void  OS_DumpMsg (void){
     msg local;
-    unsigned int from_id;
-    unsigned int to_id;
+    unsigned int from;
+    unsigned int to;
 
     for (;;) {
         
@@ -980,12 +981,32 @@ void  OS_DumpMsg (void){
             return;
         }
 
-        from_id = (unsigned int)local.fromTaskId;
-        to_id   = (unsigned int)local.toTaskId;
-        printf("%-4lu %-10s %3u %3u\n",
-               (unsigned long)local.tick,
-               (local.event == 0) ? "Preempt" : "Complete",
-               from_id, to_id);
+        from = (unsigned int)local.from;
+        to   = (unsigned int)local.to;
+
+        // Scheduler event
+        if ((local.event == 0) || (local.event == 1)) {
+            printf("%-4lu %-10s %3u %3u\n",
+                   (unsigned long)local.tick,
+                   (local.event == 0) ? "Preempt" : "Complete",
+                   from, to);
+
+        // Lock event
+        } else if (local.event == 4) {
+            printf("%-4lu %-10s R%u    (Prio=%u changes to=%u)\n",
+                   (unsigned long)local.tick,
+                   "lock",
+                   (unsigned int)local.resource,
+                   from, to);
+
+        // Unlock event
+        } else if (local.event == 5) {
+            printf("%-4lu %-10s R%u    (Prio=%u changes to=%u)\n",
+                   (unsigned long)local.tick,
+                   "unlock",
+                   (unsigned int)local.resource,
+                   from, to);
+        }
     }
 }
 
