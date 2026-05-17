@@ -424,14 +424,15 @@ typedef struct os_tcb {
 *                                            GLOBAL VARIABLES
 *********************************************************************************************************
 */
-/* ==================== LAB1 MODIFIED ==================== */
+/* ====================  MODIFIED ==================== */
 #define OS_SCHED_LOG_SIZE 256
 
 typedef struct msg {
-    INT32U tick; // 當前時間(tick)
-    INT8U event; // 事件(0=preemt, 1=complete)
-    INT8U fromTaskId; // 事件發生前 task ID
-    INT8U toTaskId; // 事件發生後 task ID
+    INT32U tick; // 當前時間
+    INT8U event; // 0:preemt, 1:complete, 4:lock, 5:unlock
+    INT8U resource; 
+    INT8U from; // 事件發生前 task ID
+    INT8U to; // 事件發生後 task ID
 } msg;
 
 /* ==================== LAB1 MODIFIED ==================== */
@@ -812,7 +813,7 @@ void          OS_QInit(void);
 void          OS_Sched(void);
 
 /* ==================== LAB1 MODIFIED ==================== */
-void OS_AddMsg(INT8U event, INT8U fromTaskId, INT8U toTaskId);
+void OS_AddMsg(INT8U event, INT8U resource, INT8U from, INT8U to);
 void OS_DumpMsg(void);
 
 void          OS_TaskIdle(void *data);
