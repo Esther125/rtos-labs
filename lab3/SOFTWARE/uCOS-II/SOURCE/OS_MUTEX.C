@@ -310,6 +310,8 @@ void  OSMutexPend (OS_EVENT *pevent, INT16U timeout, INT8U *err)
 #endif    
     INT8U      pip;                                        /* Priority Inheritance Priority (PIP)      */
     INT8U      mprio;                                      /* Mutex owner priority                     */
+    /* ==================== LAB3 MODIFIED ==================== */
+    INT8U      old_prio;                                   /* Owner priority before CPP boost          */
     BOOLEAN    rdy;                                        /* Flag indicating task was ready           */
     OS_TCB    *ptcb;
 
@@ -330,9 +332,32 @@ void  OSMutexPend (OS_EVENT *pevent, INT16U timeout, INT8U *err)
 #endif
     OS_ENTER_CRITICAL();								   /* Is Mutex available?                      */
     if ((INT8U)(pevent->OSEventCnt & OS_MUTEX_KEEP_LOWER_8) == OS_MUTEX_AVAILABLE) {
+        /* ==================== LAB3 MODIFIED ==================== */
+        pip      = (INT8U)(pevent->OSEventCnt >> 8);        /* Get mutex ceiling priority                */
+        old_prio = OSTCBCur->OSTCBPrio;                    /* Save caller's original priority           */
+
         pevent->OSEventCnt &= OS_MUTEX_KEEP_UPPER_8;       /* Yes, Acquire the resource                */
-        pevent->OSEventCnt |= OSTCBCur->OSTCBPrio;         /*      Save priority of owning task        */
+        pevent->OSEventCnt |= old_prio;                    /*      Save priority of owning task        */
         pevent->OSEventPtr  = (void *)OSTCBCur;            /*      Point to owning task's OS_TCB       */
+
+        /* ==================== LAB3 MODIFIED ==================== */
+        if (old_prio > pip) {                              /* Boost only if ceiling priority is higher */
+            if ((OSRdyTbl[OSTCBCur->OSTCBY] &= ~OSTCBCur->OSTCBBitX) == 0x00) {
+                OSRdyGrp &= ~OSTCBCur->OSTCBBitY;
+            }
+            OSTCBPrioTbl[old_prio] = (OS_TCB *)0;
+
+            OSTCBCur->OSTCBPrio = pip;
+            OSTCBCur->OSTCBY    = pip >> 3;
+            OSTCBCur->OSTCBBitY = OSMapTbl[OSTCBCur->OSTCBY];
+            OSTCBCur->OSTCBX    = pip & 0x07;
+            OSTCBCur->OSTCBBitX = OSMapTbl[OSTCBCur->OSTCBX];
+
+            OSRdyGrp                    |= OSTCBCur->OSTCBBitY;
+            OSRdyTbl[OSTCBCur->OSTCBY]  |= OSTCBCur->OSTCBBitX;
+            OSTCBPrioTbl[pip]            = (OS_TCB *)OSTCBCur;
+            OSPrioCur                    = pip;
+        }
         OS_EXIT_CRITICAL();
         *err  = OS_NO_ERR;
         return;
@@ -424,7 +449,8 @@ INT8U  OSMutexPost (OS_EVENT *pevent)
         OS_EXIT_CRITICAL();
         return (OS_ERR_NOT_MUTEX_OWNER);
     }
-    if (OSTCBCur->OSTCBPrio == pip) {                 /* Did we have to raise current task's priority? */
+    /* ==================== LAB3 MODIFIED ==================== */
+    if (OSTCBCur->OSTCBPrio == pip) {                 /* Restore priority when unlocking ceiling mutex */
                                                       /* Yes, Return to original priority              */
                                                       /*      Remove owner from ready list at 'pip'    */
         if ((OSRdyTbl[OSTCBCur->OSTCBY] &= ~OSTCBCur->OSTCBBitX) == 0) {
@@ -438,6 +464,7 @@ INT8U  OSMutexPost (OS_EVENT *pevent)
         OSRdyGrp                   |= OSTCBCur->OSTCBBitY;
         OSRdyTbl[OSTCBCur->OSTCBY] |= OSTCBCur->OSTCBBitX;
         OSTCBPrioTbl[prio]          = (OS_TCB *)OSTCBCur;
+        OSPrioCur                   = prio;
     }
     OSTCBPrioTbl[pip] = (OS_TCB *)1;                  /* Reserve table entry                           */
     if (pevent->OSEventGrp != 0x00) {                 /* Any task waiting for the mutex?               */
