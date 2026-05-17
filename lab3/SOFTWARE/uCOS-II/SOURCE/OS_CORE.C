@@ -986,14 +986,14 @@ void  OS_DumpMsg (void){
 
         // Scheduler event
         if ((local.event == 0) || (local.event == 1)) {
-            printf("%-4lu %-10s %3u %3u\n",
+            printf("%-4lu %-10s %-4u %3u\n",
                    (unsigned long)local.tick,
                    (local.event == 0) ? "Preempt" : "Complete",
                    from, to);
 
         // Lock event
         } else if (local.event == 4) {
-            printf("%-4lu %-10s R%u    (Prio=%u changes to=%u)\n",
+            printf("%-4lu %-10s R%-3u (Prio=%u changes to=%u)\n",
                    (unsigned long)local.tick,
                    "lock",
                    (unsigned int)local.resource,
@@ -1001,7 +1001,7 @@ void  OS_DumpMsg (void){
 
         // Unlock event
         } else if (local.event == 5) {
-            printf("%-4lu %-10s R%u    (Prio=%u changes to=%u)\n",
+            printf("%-4lu %-10s R%-3u (Prio=%u changes to=%u)\n",
                    (unsigned long)local.tick,
                    "unlock",
                    (unsigned int)local.resource,
