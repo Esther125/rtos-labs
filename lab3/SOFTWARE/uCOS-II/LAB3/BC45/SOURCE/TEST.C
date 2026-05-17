@@ -5,6 +5,7 @@
 /* CONSTANTS */
 #define TASK_STK_SIZE 512 // Size of each task's stacks (# of WORDs)
 #define N_TASKS 3 // Number of tasks
+#define SCENARIO 2
 
 /* VARIABLES */
 OS_STK TaskStartStk[TASK_STK_SIZE];
@@ -13,12 +14,13 @@ OS_STK TaskStk[N_TASKS][TASK_STK_SIZE]; // Tasks stacks
 OS_EVENT *R1; // Pointer to mutex obj 
 OS_EVENT *R2;
 INT8U task_done;
+INT8U task_total;
 
 /* FUNCTION PROTOTYPES */
 void TaskStart(void *data); // start up task
 void Task1(void *pdata);
 void Task2(void *pdata);
-// void Task3(void *pdata);
+void Task3(void *pdata);
 void CheckEscAndExit(void);
 void RunTicks(INT16U ticks);
 void LockResource(OS_EVENT *resource, INT8U resourceId);
@@ -46,6 +48,7 @@ void TaskStart(void *pdata){
     OS_CPU_SR  cpu_sr;
 #endif     
     INT8U err;
+    INT16U prev;
     pdata = pdata;
 
     // Install uC/OS-II's clock tick ISR
@@ -61,10 +64,20 @@ void TaskStart(void *pdata){
     R2 = OSMutexCreate(2, &err);
     task_done = 0;
 
-    // Create application tasks 
+    // Scenario 1
+#if SCENARIO == 1
+    task_total = 3;
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 3);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 4);
-    // OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 5);
+    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 5);
+#endif
+
+    // Scenario 2
+#if SCENARIO == 2
+    task_total = 2;
+    OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 3);
+    OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 4);
+#endif
 
     // 把 tick 跟 log buffer 歸零
     OS_ENTER_CRITICAL();
@@ -77,9 +90,22 @@ void TaskStart(void *pdata){
     // 釋放 CPU
     for(;;){
         CheckEscAndExit();
-        if (task_done >= 2) {
+        if (task_done >= task_total) {
+#if SCENARIO == 2
             RunTicks(1);
             OS_AddMsg(1, 0, OSPrioCur, OS_LOWEST_PRIO);
+#endif
+#if SCENARIO == 1
+            OS_ENTER_CRITICAL();
+            prev = (INT16U)((OSMsgHead + OS_SCHED_LOG_SIZE - 1) % OS_SCHED_LOG_SIZE);
+            if ((OSMsgHead != OSMsgTail) &&
+                (OSMsgRing[prev].event == 0) &&
+                (OSMsgRing[prev].from == OS_LOWEST_PRIO) &&
+                (OSMsgRing[prev].to == 0)) {
+                OSMsgHead = prev;
+            }
+            OS_EXIT_CRITICAL();
+#endif
             OS_DumpMsg();
             PC_DOSReturn();
         }
@@ -152,6 +178,71 @@ void UnlockResource(OS_EVENT *resource, INT8U resourceId){
 }
 
 /* APPLICATION TASKS */
+// Scenario 1
+#if SCENARIO == 1
+void Task1(void *pdata){
+    INT16U toStart;
+
+    pdata = pdata;
+    toStart = 8;
+    OSTimeDly(toStart);
+
+    RunTicks(2);
+    LockResource(R1, 1);
+    RunTicks(2);
+
+    LockResource(R2, 2);
+    RunTicks(2);
+    UnlockResource(R2, 2);
+    UnlockResource(R1, 1);
+
+    OS_ENTER_CRITICAL();
+    task_done++;
+    OS_EXIT_CRITICAL();
+
+    OSTaskSuspend(OS_PRIO_SELF);
+}
+
+void Task2(void *pdata){
+    INT16U toStart;
+
+    pdata = pdata;
+    toStart = 4;
+    OSTimeDly(toStart);
+
+    RunTicks(2);
+    LockResource(R2, 2);
+    RunTicks(4);
+    UnlockResource(R2, 2);
+
+    OS_ENTER_CRITICAL();
+    task_done++;
+    OS_EXIT_CRITICAL();
+
+    OSTaskSuspend(OS_PRIO_SELF);
+}
+
+void Task3(void *pdata){
+    INT16U toStart;
+
+    pdata = pdata;
+    toStart = 0;
+
+    RunTicks(2);
+    LockResource(R1, 1);
+    RunTicks(7);
+    UnlockResource(R1, 1);
+
+    OS_ENTER_CRITICAL();
+    task_done++;
+    OS_EXIT_CRITICAL();
+
+    OSTaskSuspend(OS_PRIO_SELF);
+}
+#endif
+
+// Scenario 2
+#if SCENARIO == 2
 void Task1(void *pdata){
     INT16U toStart;
 
@@ -188,7 +279,7 @@ void Task2(void *pdata){
     RunTicks(6);
 
     LockResource(R2, 2);
-    RunTicks(2); 
+    RunTicks(2);
     UnlockResource(R2, 2);
 
     RunTicks(2);
@@ -200,8 +291,4 @@ void Task2(void *pdata){
 
     OSTaskSuspend(OS_PRIO_SELF);
 }
-
-// void Task3(void *pdata){
-//     pdata = pdata;
-//     OSTaskSuspend(OS_PRIO_SELF);
-// }
+#endif
