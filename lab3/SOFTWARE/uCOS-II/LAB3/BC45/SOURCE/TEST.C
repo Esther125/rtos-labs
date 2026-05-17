@@ -1,4 +1,4 @@
-/* ==================== LAB1 MODIFIED ==================== */
+/* ==================== LAB3 MODIFIED ==================== */
 
 #include "includes.h"
 
@@ -10,13 +10,17 @@
 OS_STK TaskStartStk[TASK_STK_SIZE];
 OS_STK TaskStk[N_TASKS][TASK_STK_SIZE]; // Tasks stacks
 
+OS_EVENT *R1; // Pointer to mutex obj 
+OS_EVENT *R2;
+INT8U task_done;
+
 /* FUNCTION PROTOTYPES */
 void TaskStart(void *data); // start up task
-void BaseTask(INT8U taskId, INT16U compTime, INT16U period); 
 void Task1(void *pdata);
 void Task2(void *pdata);
-void Task3(void *pdata);
+// void Task3(void *pdata);
 void CheckEscAndExit(void);
+void RunTicks(INT16U ticks);
 
 /* MAIN */
 void  main (void){
@@ -39,6 +43,7 @@ void TaskStart(void *pdata){
 #if OS_CRITICAL_METHOD == 3  // Allocate storage for CPU status register
     OS_CPU_SR  cpu_sr;
 #endif     
+    INT8U err;
     pdata = pdata;
 
     // Install uC/OS-II's clock tick ISR
@@ -47,29 +52,15 @@ void TaskStart(void *pdata){
     PC_SetTickRate(OS_TICKS_PER_SEC); // 把 time 頻率調成指定頻率
     OS_EXIT_CRITICAL();
 
+    // 創建 mutex lock
+    R1 = OSMutexCreate(1, &err);
+    R2 = OSMutexCreate(2, &err);
+    task_done = 0;
+
     // Create application tasks 
-    OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
-    OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
-    OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
-    
-    // 初始化每個 task 新加的 TCB 欄位
-    // 假設所有 task 都是同時從 tick 0 開始釋放
-    OS_ENTER_CRITICAL();
-    OSTCBPrioTbl[1]->period      = 3;
-    OSTCBPrioTbl[1]->compTime    = 1;
-    OSTCBPrioTbl[1]->releaseTick = 0;
-    OSTCBPrioTbl[1]->absDeadline = 3;
-
-    OSTCBPrioTbl[2]->period      = 6;
-    OSTCBPrioTbl[2]->compTime    = 3;
-    OSTCBPrioTbl[2]->releaseTick = 0;
-    OSTCBPrioTbl[2]->absDeadline = 6;
-
-    OSTCBPrioTbl[3]->period      = 9;
-    OSTCBPrioTbl[3]->compTime    = 4;
-    OSTCBPrioTbl[3]->releaseTick = 0;
-    OSTCBPrioTbl[3]->absDeadline = 9;
-    OS_EXIT_CRITICAL();
+    OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 3);
+    OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 4);
+    // OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 5);
 
     // 把 tick 歸零
     OS_ENTER_CRITICAL();
@@ -80,6 +71,10 @@ void TaskStart(void *pdata){
     // 釋放 CPU
     for(;;){
         CheckEscAndExit();
+        if (task_done >= 2) {
+            OS_DumpMsg();
+            PC_DOSReturn();
+        }
         OSTimeDly(100);
     }
 }
@@ -95,66 +90,71 @@ void CheckEscAndExit(void){
     }
 }
 
-/* BASETASK */
-void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
-#if OS_CRITICAL_METHOD == 3  // Allocate storage for CPU status register
-    OS_CPU_SR  cpu_sr;
-#endif 
-    INT32U now;
-    INT32U toDelay; // 等多久下一次 task 才會 release
-    taskId = taskId;
+/* 模擬 task execution time */
+void RunTicks(INT16U ticks){
+    OS_ENTER_CRITICAL();
+    OSTCBCur->compTime = ticks;
+    OS_EXIT_CRITICAL();
 
-    while(1){
+    while (OSTCBCur->compTime > 0) {
+        // busy waiting
         CheckEscAndExit();
-        // 檢查有沒有 deadline miss
-        // 有 deadline miss
-        if (OSMissTaskPrio != 0) {
-            OS_DumpMsg();
-            printf("time:%lu task%lu exceed deadline\n",
-            (unsigned long)OSMissDeadlineTick,
-            (unsigned long)OSMissTaskPrio);
-            // 開發板：OSTaskSuspend(OS_PRIO_SELF); // 把 task 停掉
-            PC_DOSReturn();
-        }
-
-        // 沒有 deadline miss
-        while(OSTCBCur -> compTime > 0){ 
-            // busy waiting 等 compute time 消耗
-        }
-        OS_DumpMsg();
-
-        // 準備下一個 job
-        OS_ENTER_CRITICAL();
-        OSTCBCur -> releaseTick += period;
-        OSTCBCur -> absDeadline += period;
-        OSTCBCur -> compTime = compTime; // compute time 重置
-        now = OSTimeGet();
-        if (now < OSTCBCur->releaseTick){ // 還沒到下一個 job release 的時間
-            toDelay = OSTCBCur->releaseTick - now;
-        } else {
-            toDelay = 0;
-        }
-        OS_EXIT_CRITICAL();
-
-        if (toDelay > 0){
-            OSTimeDly(toDelay);
-        }
     }
-   
 }
 
 /* APPLICATION TASKS */
 void Task1(void *pdata){
+    INT8U err;
+    INT16U toStart;
+
     pdata = pdata;
-    BaseTask(1, 1, 3);
+    toStart = 5;
+    OSTimeDly(toStart);
+
+    RunTicks(2);
+    OSMutexPend(R2, 0, &err);
+    RunTicks(3);
+
+    OSMutexPend(R1, 0, &err);
+    RunTicks(3);
+    OSMutexPost(R1);
+
+    RunTicks(3);
+    OSMutexPost(R2);
+
+    OS_ENTER_CRITICAL();
+    task_done++;
+    OS_EXIT_CRITICAL();
+
+    OSTaskSuspend(OS_PRIO_SELF);
 }
 
 void Task2(void *pdata){
+    INT8U err;
+    INT16U toStart;
+
     pdata = pdata;
-    BaseTask(2, 3, 6);
+    toStart = 0;
+
+    RunTicks(2);
+    OSMutexPend(R1, 0, &err);
+    RunTicks(6);
+
+    OSMutexPend(R2, 0, &err);
+    RunTicks(2); 
+    OSMutexPost(R2);
+
+    RunTicks(2);
+    OSMutexPost(R1);
+
+    OS_ENTER_CRITICAL();
+    task_done++;
+    OS_EXIT_CRITICAL();
+
+    OSTaskSuspend(OS_PRIO_SELF);
 }
 
-void Task3(void *pdata){
-    pdata = pdata;
-    BaseTask(3, 4, 9);
-}
+// void Task3(void *pdata){
+//     pdata = pdata;
+//     OSTaskSuspend(OS_PRIO_SELF);
+// }
