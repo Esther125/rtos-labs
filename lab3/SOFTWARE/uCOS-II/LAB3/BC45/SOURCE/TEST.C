@@ -54,6 +54,8 @@ void TaskStart(void *pdata){
     PC_SetTickRate(OS_TICKS_PER_SEC); // 把 time 頻率調成指定頻率
     OS_EXIT_CRITICAL();
 
+    OSStatInit();
+
     // 創建 mutex lock
     R1 = OSMutexCreate(1, &err);
     R2 = OSMutexCreate(2, &err);
@@ -64,20 +66,24 @@ void TaskStart(void *pdata){
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 4);
     // OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 5);
 
-    // 把 tick 歸零
+    // 把 tick 跟 log buffer 歸零
     OS_ENTER_CRITICAL();
     // Old version: OS_TIME = 0;
     OSTimeSet(0);
+    OSMsgHead = 0;
+    OSMsgTail = 0;
     OS_EXIT_CRITICAL();
     
     // 釋放 CPU
     for(;;){
         CheckEscAndExit();
         if (task_done >= 2) {
+            RunTicks(1);
+            OS_AddMsg(1, 0, OSPrioCur, OS_LOWEST_PRIO);
             OS_DumpMsg();
             PC_DOSReturn();
         }
-        OSTimeDly(100);
+        OSTimeDly(OS_TICKS_PER_SEC);
     }
 }
 
