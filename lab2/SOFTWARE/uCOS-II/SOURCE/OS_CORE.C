@@ -319,10 +319,9 @@ void  OSSchedUnlock (void)
 void  OSStart (void)
 {
     INT8U y;
-    // INT8U x;
-
 
     if (OSRunning == FALSE) {
+        /* ==================== LAB2 MODIFIED ==================== */
         OS_TCB *next;
         next = OS_EDF(OSTCBList);
         if (next == (OS_TCB *)0) {
@@ -330,9 +329,7 @@ void  OSStart (void)
             OSPrioHighRdy = (INT8U)((y << 3) + OSUnMapTbl[OSRdyTbl[y]]);
             next = OSTCBPrioTbl[OSPrioHighRdy];
         }
-        if (next == (OS_TCB *)0) {
-            return;
-        }
+
         OSPrioHighRdy = next -> OSTCBPrio;
         OSPrioCur     = OSPrioHighRdy;
         // OSTCBHighRdy  = OSTCBPrioTbl[OSPrioHighRdy]; /* Point to highest priority task ready to run    */
