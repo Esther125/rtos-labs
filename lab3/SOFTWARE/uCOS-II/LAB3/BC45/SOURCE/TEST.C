@@ -21,6 +21,8 @@ void Task2(void *pdata);
 // void Task3(void *pdata);
 void CheckEscAndExit(void);
 void RunTicks(INT16U ticks);
+void LockResource(OS_EVENT *resource, INT8U resourceId);
+void UnlockResource(OS_EVENT *resource, INT8U resourceId);
 
 /* MAIN */
 void  main (void){
@@ -102,9 +104,49 @@ void RunTicks(INT16U ticks){
     }
 }
 
+void LockResource(OS_EVENT *resource, INT8U resourceId){
+#if OS_CRITICAL_METHOD == 3
+    OS_CPU_SR  cpu_sr;
+#endif
+    INT8U err;
+    INT8U oldPrio;
+    INT8U newPrio;
+
+    OS_ENTER_CRITICAL();
+    oldPrio = OSTCBCur->OSTCBPrio;
+    OS_EXIT_CRITICAL();
+
+    OSMutexPend(resource, 0, &err);
+
+    OS_ENTER_CRITICAL();
+    newPrio = OSTCBCur->OSTCBPrio;
+    OS_EXIT_CRITICAL();
+
+    OS_AddMsg(4, resourceId, oldPrio, newPrio);
+}
+
+void UnlockResource(OS_EVENT *resource, INT8U resourceId){
+#if OS_CRITICAL_METHOD == 3
+    OS_CPU_SR  cpu_sr;
+#endif
+    INT8U oldPrio;
+    INT8U newPrio;
+
+    OS_ENTER_CRITICAL();
+    oldPrio = OSTCBCur->OSTCBPrio;
+    OS_EXIT_CRITICAL();
+
+    OSMutexPost(resource);
+
+    OS_ENTER_CRITICAL();
+    newPrio = OSTCBCur->OSTCBPrio;
+    OS_EXIT_CRITICAL();
+
+    OS_AddMsg(5, resourceId, oldPrio, newPrio);
+}
+
 /* APPLICATION TASKS */
 void Task1(void *pdata){
-    INT8U err;
     INT16U toStart;
 
     pdata = pdata;
@@ -112,15 +154,15 @@ void Task1(void *pdata){
     OSTimeDly(toStart);
 
     RunTicks(2);
-    OSMutexPend(R2, 0, &err);
+    LockResource(R2, 2);
     RunTicks(3);
 
-    OSMutexPend(R1, 0, &err);
+    LockResource(R1, 1);
     RunTicks(3);
-    OSMutexPost(R1);
+    UnlockResource(R1, 1);
 
     RunTicks(3);
-    OSMutexPost(R2);
+    UnlockResource(R2, 2);
 
     OS_ENTER_CRITICAL();
     task_done++;
@@ -130,22 +172,21 @@ void Task1(void *pdata){
 }
 
 void Task2(void *pdata){
-    INT8U err;
     INT16U toStart;
 
     pdata = pdata;
     toStart = 0;
 
     RunTicks(2);
-    OSMutexPend(R1, 0, &err);
+    LockResource(R1, 1);
     RunTicks(6);
 
-    OSMutexPend(R2, 0, &err);
+    LockResource(R2, 2);
     RunTicks(2); 
-    OSMutexPost(R2);
+    UnlockResource(R2, 2);
 
     RunTicks(2);
-    OSMutexPost(R1);
+    UnlockResource(R1, 1);
 
     OS_ENTER_CRITICAL();
     task_done++;
