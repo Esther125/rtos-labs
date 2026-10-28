@@ -24,7 +24,7 @@ void  main (void){
     OSInit();
     // Save environment to return to DOS
     PC_DOSSaveReturn();
-    // Install uC/OS-II's context switch vector 
+    // Install uC/OS-II's context switch ISR into the interrupt vector table
     PC_VectSet(uCOS, OSCtxSw);
     // Create start up task
     OSTaskCreate(TaskStart, (void*) 0,
@@ -54,7 +54,6 @@ void TaskStart(void *pdata){
 
     // 把 tick 歸零
     OS_ENTER_CRITICAL();
-    // Old version: OS_TIME = 0;
     OSTimeSet(0);
     OS_EXIT_CRITICAL();
     
