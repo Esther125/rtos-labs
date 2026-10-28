@@ -14,9 +14,32 @@
 
 ## 2. 相關 Kernel Function
 
-tick 中斷流程跟各函式說明跟 lab1 一樣，可以直接參考 [lab1.md](/lab1/lab1.md#2-相關-kernel-function)，這裡只額外列 lab1 沒提到的：
+`OSStart`、`OS_Sched`、`OS_TCBInit`、`OS_InitMisc` 跟 lab1 一樣，可以直接參考 [lab1.md](/lab1/lab1.md#2-相關-kernel-function)。
 
-- **OSStart**：開始多工時呼叫，挑第一個要跑的 task
+### Interrupt
+
+```mermaid
+flowchart LR
+    A[Timer Interrupt] --> B["OSTickISR()"]
+    B -->|1\. 呼叫| C["OSIntEnter()"]
+    B -->|2\. 呼叫| D["OSTimeTick()"]
+    B -->|3\. 呼叫| E["OSIntExit()"]
+```
+
+- **OSTickISR**（組語，`OS_CPU_A.ASM`）：timer 中斷真正的進入點，依序做：
+    1. `PUSHA` / `PUSH ES` / `PUSH DS`：把被中斷的 task 當下所有暫存器（AX/BX/CX/DX/SP/BP/SI/DI、ES、DS）全部存到**它自己的 stack** 上
+    2. `OSIntNesting +1`；如果這是最外層中斷（`OSIntNesting == 1`），把目前的 SS:SP（也就是剛剛那堆暫存器存放的位置）記到這個 task 的 TCB 裡（`OSTCBCur->OSTCBStkPtr`）——這就是 context switch 真正要保存的東西：不是複製暫存器內容，而是記住「這個 task 的暫存器現在存在哪裡」
+    3. 通知 PIC 這次中斷處理完了（順便維持 DOS 自己的系統時間）
+    4. `CALL OSTimeTick`，再 `CALL OSIntExit`
+    5. 如果 `OSIntExit` 沒有決定換人，就直接把剛剛存的暫存器原封不動還原、`IRET`，繼續跑同一個 task
+
+- **OSIntEnter**：標記目前在 ISR 裡（`OSIntNesting+1`），避免中斷還沒處理完就被排程
+
+- **OSTimeTick**：被 `OSTickISR` 呼叫，在 ISR context 裡執行，掃過 `OSTCBList`，幫每個還在 delay 的 task 把倒數 tick 數減一，倒數到 0 就標記回 ready table。
+
+- **OSIntExit**：負責在系統從 ISR 呼叫返回之後，判斷要不要重新 schedule（會不會發生 context switch）。被 `OSTickISR` 呼叫，先把 `OSIntNesting` -1，只有降到 0（代表這是最外層、也是最後一層巢狀中斷）且 scheduler 沒被 lock，才會去挑現在 ready 裡面優先權最高的 task；挑出來的如果跟目前執行的不一樣，才呼叫 `OSIntCtxSw()` 真正做 context switch（細節見下）。
+
+- **OSIntCtxSw**：真正執行 context switch 的地方。做的事：把 `OSTCBCur`/`OSPrioCur` 換成 `OSTCBHighRdy`/`OSPrioHighRdy`，然後把 SS:SP 換成新 task 自己的 `OSTCBStkPtr`（新 task 之前被中斷時存的那個位置），接著把新 task 的暫存器 `POP` 回來、`IRET`。這個 `IRET` 跳回去的位置跟 flags 都是新 task 自己之前存的，所以執行流程就直接接到新 task 原本被中斷的地方繼續跑。做完這一步就不會再回到 `OSTickISR` 原本的還原流程，因為已經用新 task 的 stack `IRET` 出去了。
 
 ## 3. 做法
 
@@ -32,7 +55,6 @@ tick 中斷流程跟各函式說明跟 lab1 一樣，可以直接參考 [lab1.md
 - OS_InitMisc 初始化 global variables
 - OS_AddMsg / OS_DumpMsg 的實作
 - OSTimeTick 遞減 compTime、檢查 deadline 的邏輯（多了幾個 null check，整體跟 lab1 一樣）
-- 一樣用 === LAB2 MODIFIED === 註解，可以 Ctrl + F 搜尋 LAB2 看改過哪些地方
 
 ### 3.2 Application Code
 
@@ -43,7 +65,7 @@ tick 中斷流程跟各函式說明跟 lab1 一樣，可以直接參考 [lab1.md
     ```mermaid
     flowchart LR
         A[main: OSInit] --> B[建立 TaskStart]
-        B --> C[OSStart 開始多工]
+        B --> C[OSStart 開始 multitasking]
         C --> D[TaskStart: 裝 tick ISR]
         D --> E[建立 application tasks]
         E --> F[OSTimeSet 歸零時間]
@@ -70,11 +92,7 @@ tick 中斷流程跟各函式說明跟 lab1 一樣，可以直接參考 [lab1.md
 
 #### OS_CORE.C
 
-- 新增 OS_EDF：掃過 OSTCBList，在系統還沒發生過 deadline miss 的前提下，從「period > 0 且 compTime > 0 且目前 ready」的 task 中挑 deadline 最小的那個，挑不到就回傳 NULL：[L1260-1279](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L1260-L1279)
-- OSStart 改成先呼叫 OS_EDF 選第一個要跑的 task，挑不到（代表沒有 periodic task ready）才 fallback 回原本的 priority table：[L324-337](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L324-L337)
-- OS_Sched 同樣改成先呼叫 OS_EDF，挑不到才 fallback 回 priority table，排程成功才紀錄 complete 事件：[L942-963](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L942-L963)
-- OSIntExit 同樣改成呼叫 OS_EDF 決定下一個要跑的 task：[L190-217](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L190-L217)
-
-> [!IMPORTANT]
-> `OSIntExit` 多加了一個 guard：如果目前這個 task 的 `compTime` 剛好被 tick ISR 扣到 0、但還沒執行到 `BaseTask()` 裡面的 `OSTimeDly()`，就先不重新排程直接 return。<br>
-> 否則這個 task 還沒進入 delay 狀態，`OSIntExit` 就會提早觸發排程，導致同一個 tick 內重複記錄一次 Complete 事件（對應修正 commit：avoid same-tick duplicate Complete logs by deferring ISR reschedule when current periodic job just finished）。
+- 新增 OS_EDF：掃過 OSTCBList，在系統還沒發生過 deadline miss 的前提下，從「period > 0 且 compTime > 0 且目前 ready」的 task 中挑 deadline 最小的那個，挑不到就回傳 NULL：[L1254-1273](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L1254-L1273)
+- OSStart 改成先呼叫 OS_EDF 選第一個要跑的 task，挑不到（代表沒有 periodic task ready）才 fallback 回原本的 priority table：[L318-331](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L318-L331)
+- OS_Sched 同樣改成先呼叫 OS_EDF，挑不到才 fallback 回 priority table，排程成功才紀錄 complete 事件：[L936-957](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L936-L957)
+- OSIntExit 同樣改成呼叫 OS_EDF 決定下一個要跑的 task：[L190-211](/lab2/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L190-L211)
