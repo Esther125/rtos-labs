@@ -1,8 +1,9 @@
 # Lab1
 
-## 題目
+## 1. 題目
 
 - 模擬 periodic tasks RM (Rate Monotonic) scheduling
+    - RM: period 越短優先權越高，一開始分配好就固定不變的 fixed-priority 排程演算法
 - 測試資料：
     - Task set 1 = { t1(1,3), t2(3,6) }
     - Task set 2 = { t1(1,3), t2(3,6), t3(4,9) }
@@ -11,9 +12,29 @@
     - Show context switch behaviors
     - Show deadline violations if there is any
 
-## 做法
+## 2. 相關 Kernel Function
 
-### Application Code
+每個 tick 中斷會依序觸發以下幾個 kernel function：
+
+```mermaid
+flowchart LR
+    A[Timer Interrupt] --> B[OSTickISR]
+    B --> C[OSIntEnter]
+    C --> D[OSTimeTick]
+    D --> E[OSIntExit]
+```
+
+- **OSTickISR**：tick 中斷的進入點，負責保存現場，依序呼叫 `OSIntEnter` → `OSTimeTick` → `OSIntExit`
+- **OSIntEnter**：標記目前在 ISR 裡（`OSIntNesting+1`），避免中斷還沒處理完就被排程
+- **OSTimeTick**：每個 tick 呼叫一次，處理所有 task 的 delay 倒數
+- **OSIntExit**：ISR 的出口，巢狀中斷都處理完才會決定要不要切換到更高優先權的 task
+- **OS_Sched**：task 主動讓出 CPU 時呼叫（例如呼叫 `OSTimeDly`），挑出目前優先權最高的 ready task 做 context switch
+- **OS_TCBInit**：建立 task 時初始化 TCB
+- **OS_InitMisc**：`OSInit()` 會呼叫，初始化系統的全域變數
+
+## 3. 做法
+
+### 3.1 Application Code
 
 - refer to : [TEST.C](/lab1/SOFTWARE/uCOS-II/LAB1/BC45/SOURCE/TEST.C)
 
@@ -38,7 +59,7 @@
         O --> J
     ```
 
-### ucOS Kernel Code Modified
+### 3.2 ucOS Kernel Code Modified
 
 - refer to :
     - [uCOS_II.H](/lab1/SOFTWARE/uCOS-II/SOURCE/uCOS_II.H)
@@ -53,7 +74,7 @@
     - compTime: task 裡面一個 job 執行時間多長
     - period: task 裡面每隔多久 release 一次 job
     - releaseTick: 每個 task 裡面 job 應該 release 的時間（絕對時間）
-    - absDeadline: 每個 task 裡面 job 的 deadline (絕對時間)
+    - deadline: 每個 task 裡面 job 的 deadline，存絕對時間（不是相對 period 的時長）
 - 新增 msg 結構，用來儲存 event log：[L427-435](/lab1/SOFTWARE/uCOS-II/SOURCE/uCOS_II.H#L427-L435)
 - 新增 global variables：[L437-442](/lab1/SOFTWARE/uCOS-II/SOURCE/uCOS_II.H#L437-L442)
     - OSMsgRing[OS_SCHED_LOG_SIZE]: ring buffer 存要 print 的訊息
