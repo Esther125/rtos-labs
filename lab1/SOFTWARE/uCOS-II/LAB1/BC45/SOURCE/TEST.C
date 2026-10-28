@@ -47,29 +47,10 @@ void TaskStart(void *pdata){
     PC_SetTickRate(OS_TICKS_PER_SEC); // 把 time 頻率調成指定頻率
     OS_EXIT_CRITICAL();
 
-    // Create application tasks 
+    // Create application tasks
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 1);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 2);
     OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 3);
-    
-    // 初始化每個 task 新加的 TCB 欄位
-    // 假設所有 task 都是同時從 tick 0 開始釋放
-    OS_ENTER_CRITICAL();
-    OSTCBPrioTbl[1]->period      = 3;
-    OSTCBPrioTbl[1]->compTime    = 1;
-    OSTCBPrioTbl[1]->releaseTick = 0;
-    OSTCBPrioTbl[1]->absDeadline = 3;
-
-    OSTCBPrioTbl[2]->period      = 6;
-    OSTCBPrioTbl[2]->compTime    = 3;
-    OSTCBPrioTbl[2]->releaseTick = 0;
-    OSTCBPrioTbl[2]->absDeadline = 6;
-
-    OSTCBPrioTbl[3]->period      = 9;
-    OSTCBPrioTbl[3]->compTime    = 4;
-    OSTCBPrioTbl[3]->releaseTick = 0;
-    OSTCBPrioTbl[3]->absDeadline = 9;
-    OS_EXIT_CRITICAL();
 
     // 把 tick 歸零
     OS_ENTER_CRITICAL();
@@ -103,6 +84,14 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
     INT32U now;
     INT32U toDelay; // 等多久下一次 task 才會 release
     taskId = taskId;
+
+    // 初始化自己的 TCB 欄位（假設所有 task 都是同時從 tick 0 開始釋放）
+    OS_ENTER_CRITICAL();
+    OSTCBCur->period      = period;
+    OSTCBCur->compTime    = compTime;
+    OSTCBCur->releaseTick = 0;
+    OSTCBCur->absDeadline = period;
+    OS_EXIT_CRITICAL();
 
     while(1){
         CheckEscAndExit();
