@@ -51,10 +51,6 @@
 
 - 擴充 TCB 欄位，新增：[L411-418](/lab1/SOFTWARE/uCOS-II/SOURCE/uCOS_II.H#L411-L418)
     - compTime: task 裡面一個 job 執行時間多長
-
-        > [!WARNING]
-        > 要宣告成 `volatile`：`compTime` 會在 tick ISR（`OSTimeTick()`）裡被遞減，而 `BaseTask()` 又用 `while (OSTCBCur->compTime > 0) {}` busy-wait 讀取它。如果不加 `volatile`，compiler 可能會把這個值快取在暫存器裡做優化，讀不到 ISR 更新後的新值，導致無窮迴圈
-
     - period: task 裡面每隔多久 release 一次 job
     - releaseTick: 每個 task 裡面 job 應該 release 的時間（絕對時間）
     - absDeadline: 每個 task 裡面 job 的 deadline (絕對時間)
@@ -66,6 +62,11 @@
     - OSMissTaskPrio: 紀錄是哪個 task 超時 （0: 沒有超時）
     - OSMissDeadlineTick: 紀錄在第幾個 tick 超時
 
+> [!WARNING]
+> TCB 擴充的欄位中，`compTime` 要宣告成 `volatile`
+> 因為它會在 tick ISR（`OSTimeTick()`）裡被遞減，而 `BaseTask()` 又用 `while (OSTCBCur->compTime > 0) {}` busy-wait 讀取它。
+> 如果不加 `volatile`，compiler 可能會把這個值快取在暫存器裡做優化，讀不到 ISR 更新後的新值，導致無窮迴圈。
+
 #### OS_CORE.C
 
 - 在 OS_InitMisc 初始化 global variables：[L699-704](/lab1/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L699-L704)
@@ -75,21 +76,16 @@
     OS_AddMsg(1, OSPrioCur, OSPrioHighRdy); // 1: complete
     ```
 - 在 OSIntExit 紀錄 preempt 事件：[L190-192](/lab1/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L190-L192)
-
     ```c
     OS_AddMsg(0, OSPrioCur, OSPrioHighRdy);  // 0: Preempt
     ```
-
 - 在 OSTimeTick
     - 遞減 compTime：[L400-405](/lab1/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L400-L405)
-
         ```c
         if (OSTCBCur->compTime > 0) {
                 OSTCBCur->compTime--;
             }
         ```
-
     - 檢查有沒有 task 超過 deadline，有的話紀錄到 global variable (OSMissTaskPrio, OSMissDeadlineTick)：[L406-422](/lab1/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L406-L422)
-
 - 新增 OS_AddMsg 把排程事件寫到 ring buffer：[L929-957](/lab1/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L929-L957)
 - 新增 OS_DumpMsg 從 ring buffer 印出訊息：[L959-990](/lab1/SOFTWARE/uCOS-II/SOURCE/OS_CORE.C#L959-L990)
