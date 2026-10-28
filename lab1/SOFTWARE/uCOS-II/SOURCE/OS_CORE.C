@@ -412,9 +412,9 @@ void  OSTimeTick (void)
                 // 只檢查 application tasks
                 if ((ptcb->period > 0) &&
                     (ptcb->compTime > 0) &&
-                    (OSTime >= ptcb->absDeadline)) {
+                    (OSTime >= ptcb->deadline)) {
                     OSMissTaskPrio     = ptcb->OSTCBPrio;
-                    OSMissDeadlineTick = ptcb->absDeadline;
+                    OSMissDeadlineTick = ptcb->deadline;
                     break;
                 }
                 ptcb = ptcb->OSTCBNext;
@@ -1157,7 +1157,7 @@ INT8U  OS_TCBInit (INT8U prio, OS_STK *ptos, OS_STK *pbos, INT16U id, INT32U stk
         ptcb->compTime       = 0;
         ptcb->period         = 0;
         ptcb->releaseTick    = 0;
-        ptcb->absDeadline    = 0;
+        ptcb->deadline       = 0;
 
 #if OS_TASK_CREATE_EXT_EN > 0
         ptcb->OSTCBExtPtr    = pext;                       /* Store pointer to TCB extension           */

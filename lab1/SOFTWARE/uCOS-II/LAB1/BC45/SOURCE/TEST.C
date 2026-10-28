@@ -89,7 +89,7 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
     OSTCBCur->period      = period;
     OSTCBCur->compTime    = compTime;
     OSTCBCur->releaseTick = 0;
-    OSTCBCur->absDeadline = period;
+    OSTCBCur->deadline    = period;
     OS_EXIT_CRITICAL();
 
     while(1){
@@ -114,7 +114,7 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
         // 準備下一個 job
         OS_ENTER_CRITICAL();
         OSTCBCur -> releaseTick += period;
-        OSTCBCur -> absDeadline += period;
+        OSTCBCur -> deadline += period;
         OSTCBCur -> compTime = compTime; // compute time 重置
         now = OSTimeGet();
         if (now < OSTCBCur->releaseTick){ // 還沒到下一個 job release 的時間

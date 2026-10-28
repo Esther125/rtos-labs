@@ -415,7 +415,7 @@ typedef struct os_tcb {
     volatile INT16U compTime; 
     INT16U period;
     INT32U releaseTick; // 每個 task 裡面 job 應該 release 的時間（絕對時間）
-    INT32U absDeadline; // 每個 task 裡面 job 的 deadline (絕對時間)
+    INT32U deadline; // 每個 task 裡面 job 的 deadline (絕對時間)
 } OS_TCB;
 
 /*$PAGE*/
