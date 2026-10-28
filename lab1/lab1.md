@@ -14,23 +14,20 @@
 
 ## 2. 相關 Kernel Function
 
-每個 tick 中斷會依序觸發以下幾個 kernel function：
-
-```mermaid
-flowchart LR
-    A[Timer Interrupt] --> B[OSTickISR]
-    B --> C[OSIntEnter]
-    C --> D[OSTimeTick]
-    D --> E[OSIntExit]
-```
-
-- **OSTickISR**：tick 中斷的進入點，負責保存現場，依序呼叫 `OSIntEnter` → `OSTimeTick` → `OSIntExit`
-- **OSIntEnter**：標記目前在 ISR 裡（`OSIntNesting+1`），避免中斷還沒處理完就被排程
+- **OSStart**：開始 multitasking 時呼叫，挑第一個要跑的 task
+- **OS_Sched**：task 執行完 (complete)，**主動讓出 CPU** 時呼叫
+    - 會挑出目前優先權最高的 ready task
+    - 如果跟目前執行的 task 不一樣 -> context switch
 - **OSTimeTick**：每個 tick 呼叫一次，處理所有 task 的 delay 倒數
-- **OSIntExit**：ISR 的出口，巢狀中斷都處理完才會決定要不要切換到更高優先權的 task
-- **OS_Sched**：task 主動讓出 CPU 時呼叫（例如呼叫 `OSTimeDly`），挑出目前優先權最高的 ready task 做 context switch
+- **OSIntExit**：ISR 的出口，巢狀中斷都處理完後，挑出目前優先權最高的 ready task，如果跟目前執行的 task -> context switch
 - **OS_TCBInit**：建立 task 時初始化 TCB
 - **OS_InitMisc**：`OSInit()` 會呼叫，初始化系統的全域變數
+
+> [!NOTE]
+> Context switch 分兩種，分別由不同 function 觸發：
+>
+> - Voluntary（task 執行完自己讓出 CPU）：`OS_Sched`
+> - Involuntary（tick interrupt 後被搶走 CPU）：`OSIntExit`
 
 ## 3. 做法
 
@@ -43,7 +40,7 @@ flowchart LR
     ```mermaid
     flowchart LR
         A[main: OSInit] --> B[建立 TaskStart]
-        B --> C[OSStart 開始多工]
+        B --> C[OSStart 開始 multitasking]
         C --> D[TaskStart: 裝 tick ISR]
         D --> E[建立 Task1/2/3]
         E --> F[OSTimeSet 歸零時間]
