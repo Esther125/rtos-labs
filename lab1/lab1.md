@@ -51,8 +51,10 @@
 
 - 擴充 TCB 欄位，新增：[L411-418](/lab1/SOFTWARE/uCOS-II/SOURCE/uCOS_II.H#L411-L418)
     - compTime: task 裡面一個 job 執行時間多長
+
         > [!WARNING]
         > 要宣告成 `volatile`：`compTime` 會在 tick ISR（`OSTimeTick()`）裡被遞減，而 `BaseTask()` 又用 `while (OSTCBCur->compTime > 0) {}` busy-wait 讀取它。如果不加 `volatile`，compiler 可能會把這個值快取在暫存器裡做優化，讀不到 ISR 更新後的新值，導致無窮迴圈
+
     - period: task 裡面每隔多久 release 一次 job
     - releaseTick: 每個 task 裡面 job 應該 release 的時間（絕對時間）
     - absDeadline: 每個 task 裡面 job 的 deadline (絕對時間)
