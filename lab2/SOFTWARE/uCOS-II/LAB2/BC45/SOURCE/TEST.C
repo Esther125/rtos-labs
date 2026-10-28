@@ -24,7 +24,7 @@ void  main (void){
     OSInit();
     // Save environment to return to DOS
     PC_DOSSaveReturn();
-    // Install uC/OS-II's context switch vector 
+    // Install uC/OS-II's context switch ISR into the interrupt vector table
     PC_VectSet(uCOS, OSCtxSw);
     // Create start up task
     OSTaskCreate(TaskStart, (void*) 0,
@@ -86,12 +86,12 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
     INT32U toDelay; // 等多久下一次 task 才會 release
     taskId = taskId;
 
-    // 初始化
+    // 初始化自己的 TCB 欄位（假設所有 task 都是同時從 tick 0 開始釋放）
     OS_ENTER_CRITICAL();
-    OSTCBCur -> compTime = compTime;
-    OSTCBCur -> period = period;
-    OSTCBCur -> deadline = period;
+    OSTCBCur -> period      = period;
+    OSTCBCur -> compTime    = compTime;
     OSTCBCur -> releaseTick = 0;
+    OSTCBCur -> deadline    = period;
     OS_EXIT_CRITICAL();
 
     while(1){
@@ -108,10 +108,7 @@ void BaseTask(INT8U taskId, INT16U compTime, INT16U period){
 
         // 沒有 deadline miss
         while(OSTCBCur -> compTime > 0){
-            CheckEscAndExit();
-            if (OSMissTaskPrio != 0) {
-                break;
-            }
+            // busy waiting 等 compute time 消耗
         }
         OS_DumpMsg();
 

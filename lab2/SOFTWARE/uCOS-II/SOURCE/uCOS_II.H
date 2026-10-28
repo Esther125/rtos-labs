@@ -407,9 +407,10 @@ typedef struct os_tcb {
 
     /* ==================== LAB2 MODIFIED ==================== */
     // TCB 新增變數
-    INT16U compTime; 
+    // - volatile: compTime 會在 timeTick() 被減少，宣告成 volatile 避免編譯器把它快取在暫存器裡做優化
+    volatile INT16U compTime;
     INT16U period;
-    INT32U deadline;
+    INT32U deadline; // 絕對時間
     INT32U releaseTick;
 
 #if OS_TASK_DEL_EN > 0
