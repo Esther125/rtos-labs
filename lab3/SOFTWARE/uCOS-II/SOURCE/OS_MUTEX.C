@@ -273,6 +273,28 @@ OS_EVENT  *OSMutexDel (OS_EVENT *pevent, INT8U opt, INT8U *err)
 }
 #endif
 
+/* ==================== LAB3 MODIFIED ==================== */
+/* CPP 用：把 OSTCBCur 的 priority 從 old_prio 換成 new_prio，
+   同步更新 ready table / priority table，取代呼叫 OSTaskChangePrio()（會觸發 OS_Sched()） */
+static void OS_MutexChangeCurPrio (INT8U old_prio, INT8U new_prio)
+{
+    if ((OSRdyTbl[OSTCBCur->OSTCBY] &= ~OSTCBCur->OSTCBBitX) == 0x00) {
+        OSRdyGrp &= ~OSTCBCur->OSTCBBitY;
+    }
+    OSTCBPrioTbl[old_prio] = (OS_TCB *)0;
+
+    OSTCBCur->OSTCBPrio = new_prio;
+    OSTCBCur->OSTCBY    = new_prio >> 3; // 在第幾排 
+    OSTCBCur->OSTCBBitY = OSMapTbl[OSTCBCur->OSTCBY];
+    OSTCBCur->OSTCBX    = new_prio & 0x07; // 在某排的第幾個 bit
+    OSTCBCur->OSTCBBitX = OSMapTbl[OSTCBCur->OSTCBX];
+
+    OSRdyGrp                   |= OSTCBCur->OSTCBBitY;
+    OSRdyTbl[OSTCBCur->OSTCBY] |= OSTCBCur->OSTCBBitX;
+    OSTCBPrioTbl[new_prio]      = (OS_TCB *)OSTCBCur;
+    OSPrioCur                   = new_prio;
+}
+
 /*$PAGE*/
 /*
 *********************************************************************************************************
@@ -310,6 +332,8 @@ void  OSMutexPend (OS_EVENT *pevent, INT16U timeout, INT8U *err)
 #endif    
     INT8U      pip;                                        /* Priority Inheritance Priority (PIP)      */
     INT8U      mprio;                                      /* Mutex owner priority                     */
+    /* ==================== LAB3 MODIFIED ==================== */
+    INT8U      old_prio; // CPP boost 前，caller 原本的 priority
     BOOLEAN    rdy;                                        /* Flag indicating task was ready           */
     OS_TCB    *ptcb;
 
@@ -330,9 +354,21 @@ void  OSMutexPend (OS_EVENT *pevent, INT16U timeout, INT8U *err)
 #endif
     OS_ENTER_CRITICAL();								   /* Is Mutex available?                      */
     if ((INT8U)(pevent->OSEventCnt & OS_MUTEX_KEEP_LOWER_8) == OS_MUTEX_AVAILABLE) {
+        /* ==================== LAB3 MODIFIED ==================== */
+        /* 讀出 mutex 的 ceiling priority，記住自己原本的 priority 存進 OSEventCnt，
+           這樣 OSMutexPost 解鎖時才知道要還原回哪個 priority */
+        pip      = (INT8U)(pevent->OSEventCnt >> 8);
+        old_prio = OSTCBCur->OSTCBPrio;
+
         pevent->OSEventCnt &= OS_MUTEX_KEEP_UPPER_8;       /* Yes, Acquire the resource                */
-        pevent->OSEventCnt |= OSTCBCur->OSTCBPrio;         /*      Save priority of owning task        */
+        pevent->OSEventCnt |= old_prio;                    /*      Save priority of owning task        */
         pevent->OSEventPtr  = (void *)OSTCBCur;            /*      Point to owning task's OS_TCB       */
+
+        /* ==================== LAB3 MODIFIED ==================== */
+        /* CPP：ceiling priority 比自己高（數字較小）才需要 boost */
+        if (old_prio > pip) {
+            OS_MutexChangeCurPrio(old_prio, pip);
+        }
         OS_EXIT_CRITICAL();
         *err  = OS_NO_ERR;
         return;
@@ -424,20 +460,10 @@ INT8U  OSMutexPost (OS_EVENT *pevent)
         OS_EXIT_CRITICAL();
         return (OS_ERR_NOT_MUTEX_OWNER);
     }
-    if (OSTCBCur->OSTCBPrio == pip) {                 /* Did we have to raise current task's priority? */
-                                                      /* Yes, Return to original priority              */
-                                                      /*      Remove owner from ready list at 'pip'    */
-        if ((OSRdyTbl[OSTCBCur->OSTCBY] &= ~OSTCBCur->OSTCBBitX) == 0) {
-            OSRdyGrp &= ~OSTCBCur->OSTCBBitY;
-        }
-        OSTCBCur->OSTCBPrio         = prio;
-        OSTCBCur->OSTCBY            = prio >> 3;
-        OSTCBCur->OSTCBBitY         = OSMapTbl[OSTCBCur->OSTCBY];
-        OSTCBCur->OSTCBX            = prio & 0x07;
-        OSTCBCur->OSTCBBitX         = OSMapTbl[OSTCBCur->OSTCBX];
-        OSRdyGrp                   |= OSTCBCur->OSTCBBitY;
-        OSRdyTbl[OSTCBCur->OSTCBY] |= OSTCBCur->OSTCBBitX;
-        OSTCBPrioTbl[prio]          = (OS_TCB *)OSTCBCur;
+    /* ==================== LAB3 MODIFIED ==================== */
+    /* 如果自己目前是用 ceiling priority 在跑，解鎖時要還原回原本的 priority */
+    if (OSTCBCur->OSTCBPrio == pip) {
+        OS_MutexChangeCurPrio(pip, prio);
     }
     OSTCBPrioTbl[pip] = (OS_TCB *)1;                  /* Reserve table entry                           */
     if (pevent->OSEventGrp != 0x00) {                 /* Any task waiting for the mutex?               */
