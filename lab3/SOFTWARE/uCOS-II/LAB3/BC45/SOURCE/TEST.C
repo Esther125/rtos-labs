@@ -70,18 +70,19 @@ void TaskStart(void *pdata){
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 3);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 4);
     OSTaskCreate(Task3, (void *)0, &TaskStk[2][TASK_STK_SIZE - 1], 5);
-#endif
 
     // Scenario 2
-#if SCENARIO == 2
+#elif SCENARIO == 2
     task_total = 2;
     OSTaskCreate(Task1, (void *)0, &TaskStk[0][TASK_STK_SIZE - 1], 3);
     OSTaskCreate(Task2, (void *)0, &TaskStk[1][TASK_STK_SIZE - 1], 4);
+
+#else
+#error "SCENARIO must be 1 or 2"
 #endif
 
     // 把 tick 跟 log buffer 歸零
     OS_ENTER_CRITICAL();
-    // Old version: OS_TIME = 0;
     OSTimeSet(0);
     OSMsgHead = 0;
     OSMsgTail = 0;
@@ -91,11 +92,8 @@ void TaskStart(void *pdata){
     for(;;){
         CheckEscAndExit();
         if (task_done >= task_total) {
-#if SCENARIO == 2
-            RunTicks(1);
-            OS_AddMsg(1, 0, OSPrioCur, OS_LOWEST_PRIO);
-#endif
-#if SCENARIO == 1
+            // 把 TaskStart 自己被 tick 叫醒的那筆 Preempt(idle->TaskStart) 從 log 退回去，
+            // 不然印出來的結尾會多一筆跟測試無關的雜訊
             OS_ENTER_CRITICAL();
             prev = (INT16U)((OSMsgHead + OS_SCHED_LOG_SIZE - 1) % OS_SCHED_LOG_SIZE);
             if ((OSMsgHead != OSMsgTail) &&
@@ -105,7 +103,6 @@ void TaskStart(void *pdata){
                 OSMsgHead = prev;
             }
             OS_EXIT_CRITICAL();
-#endif
             OS_DumpMsg();
             PC_DOSReturn();
         }
@@ -136,6 +133,7 @@ void RunTicks(INT16U ticks){
     }
 }
 
+/* LockResource 並記錄 lock 前後的 priority 變化 */
 void LockResource(OS_EVENT *resource, INT8U resourceId){
 #if OS_CRITICAL_METHOD == 3
     OS_CPU_SR  cpu_sr;
@@ -157,6 +155,7 @@ void LockResource(OS_EVENT *resource, INT8U resourceId){
     OS_AddMsg(4, resourceId, oldPrio, newPrio);
 }
 
+/* UnlockResource 並記錄 unlock 前後的 priority 變化 */
 void UnlockResource(OS_EVENT *resource, INT8U resourceId){
 #if OS_CRITICAL_METHOD == 3
     OS_CPU_SR  cpu_sr;
@@ -239,10 +238,9 @@ void Task3(void *pdata){
 
     OSTaskSuspend(OS_PRIO_SELF);
 }
-#endif
 
 // Scenario 2
-#if SCENARIO == 2
+#elif SCENARIO == 2
 void Task1(void *pdata){
     INT16U toStart;
 
