@@ -99,7 +99,3 @@ flowchart LR
 
 > [!NOTE]
 > `prvSelectEarliestDeadlineTask()` 跟 lab2 的 `OS_EDF()` 思路一樣：線性掃過所有 ready task，挑 deadline 最小的；挑不到（沒有已啟用 EDF 的 ready task）就 fallback 回原本的排程方式。`vTaskSwitchContext()` 判斷要不要 fallback、要不要記 log 的寫法也跟 lab2 的 `OSIntExit`/`OS_Sched` 結構幾乎一樣。
-
-## 4. 執行驗證
-
-沒有找到能直接跑這個 project 的模擬器：QEMU 主線從未支援 MSP430（官方 maintainer 2021 年在 mailing list 上明確證實沒有這顆 CPU 的 emulation），唯一找到的 out-of-tree `qemu-system-msp430` fork（2016 年、QEMU 2.4 時代）實際拿 FreeRTOS 去跑也是失敗的；Renode 只有通用 MSP430 ISA、沒有 FR5994 的平台描述檔，要自己寫；或是把 project 搬去 FreeRTOS 的 POSIX simulator，但要 mock 掉所有硬體相關的部分，工夫都遠超過「跑一下驗證」的範圍。所以這份文件沒有實際編譯執行過，是單純讀 code 整理出來的。
