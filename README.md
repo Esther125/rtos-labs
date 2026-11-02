@@ -1,6 +1,6 @@
 # rtos-labs
 
-114-2 學期 嵌入式即時系統 課程的 Labs (A+)
+114-2 學期 **嵌入式即時系統** 課程 Labs (A+)
 
 - Lab1~3：
     - uC/OS-II，開發板 Altera Nios II（FPGA + Soft CPU）
