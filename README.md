@@ -3,10 +3,10 @@
 114-2 學期 **嵌入式即時系統** 課程 Labs (A+)
 
 - Lab1~3：
-    - uC/OS-II，開發板 Altera Nios II（FPGA + Soft CPU）
+    - uC/OS-II，開發板用 FPGA 板子 + Nios II soft-core CPU（Altera/Intel）
     - 先用 DOSBox 模擬 DOS 環境寫 & 驗證 scheduling logic，再上真實硬體驗證
 - Lab4~5：
-    - FreeRTOS，開發板 TI MSP430FR5994 LaunchPad
+    - FreeRTOS，開發板用 TI MSP430FR5994 LaunchPad
     - 用 Code Composer Studio 建置，沒有適合的模擬器，直接上板子驗證
 
 | Lab  | RTOS     | 說明                                                                          | 文件                     |
