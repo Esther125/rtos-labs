@@ -11,8 +11,7 @@
     - Task set 1 = `{ t1(1,3), t2(3,5) }`
     - Task set 2 = `{ t1(1,4), t2(2,5), t3(2,10) }`
 - 其他提示
-    - `printf()` 只能在 `main.c`（task context）呼叫，不要在 ISR 或 kernel 的 `tasks.c` 裡直接印—。可以先 buffer 起來，之後再一次印出
-    - task 建立的順序可以自己調整，因為系統預設會先跑「最後建立」的那個 task
+    - `printf()` 只能在 `main.c`（task context）呼叫，不要在 ISR 或 kernel 的 `tasks.c` 裡直接印。可以先 buffer 起來，之後再一次印出
 
 ## 2. 相關 Kernel Function
 
@@ -54,9 +53,6 @@
 > [!NOTE]
 > 用 `#define mainLAB_TASK_SET` 切換要跑哪組 task set（1 或 2）。
 
-> [!NOTE]
-> task 建立順序本身不影響正確性：FreeRTOS 在 scheduler 開始前，`xTaskCreate()` 會把最後建立、priority 相等或更高的 task 設成 `pxCurrentTCB`（跟實際 deadline 無關），所以全部建立完、deadline 都設定好之後，額外呼叫一次 `vTaskEDFSelectInitialTask()`，重用 `prvSelectEarliestDeadlineTask()` 直接依 deadline 挑出開機第一個該跑的 task，不用依賴「刻意按順序建立」這種跟陣列排列方式綁死的技巧。
-
 ### 3.2 FreeRTOS Kernel Modified（跟原生 FreeRTOS 不一樣的地方）
 
 - refer to :
@@ -66,7 +62,11 @@
 #### task.h
 
 - 新增 `TaskEDFLogEvent_t`（紀錄一筆排程事件：tick、是 complete 還是 preempt、from/to 的 task number）：[L89-97](/lab4/FreeRTOS_Source/include/task.h#L89-L97)
+    - 對應 `prvLabPrintOutputOnce()` 印出的格式是 `<tick> <complete|preempt> <from> <to>`，例如 `3 complete T2 T1` 代表 tick 3 時 T2 的 job 剛好做完，排程換成 T1
 - 新增 EDF 控制 API 宣告（`vTaskEDFSetTaskInfo`/`vTaskEDFSetDeadline`/`vTaskEDFMarkJobComplete`/`vTaskEDFClearLog`/`uxTaskEDFGetLogCount`/`xTaskEDFGetLogEvent`/`vTaskEDFSelectInitialTask`），完全沒有動到 `xTaskCreate()` 原本的介面：[L367-379](/lab4/FreeRTOS_Source/include/task.h#L367-L379)
+
+> [!NOTE]
+> 不改 `xTaskCreate()` 簽名是因為它是所有 task（包括 idle task）共用的核心 API，EDF 資訊只是 EDF task 才需要的選用屬性。改用「先 `xTaskCreate()` 拿到 `TaskHandle_t`，再用獨立 setter 設定額外資訊」這個模式，是照抄 FreeRTOS 自己原生的慣例（例如 `vTaskSetApplicationTaskTag( TaskHandle_t, ... )`），不是自己發明的寫法。
 
 #### tasks.c
 
