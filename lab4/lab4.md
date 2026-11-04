@@ -66,7 +66,7 @@
 - 新增 EDF 控制 API 宣告（`vTaskEDFSetTaskInfo`/`vTaskEDFSetDeadline`/`vTaskEDFMarkJobComplete`/`vTaskEDFClearLog`/`uxTaskEDFGetLogCount`/`xTaskEDFGetLogEvent`/`vTaskEDFSelectInitialTask`），完全沒有動到 `xTaskCreate()` 原本的介面：[L367-379](/lab4/FreeRTOS_Source/include/task.h#L367-L379)
 
 > [!NOTE]
-> 不改 `xTaskCreate()` 簽名是因為它是所有 task（包括 idle task）共用的核心 API，EDF 資訊只是 EDF task 才需要的選用屬性。改用「先 `xTaskCreate()` 拿到 `TaskHandle_t`，再用獨立 setter 設定額外資訊」這個模式，是照抄 FreeRTOS 自己原生的慣例（例如 `vTaskSetApplicationTaskTag( TaskHandle_t, ... )`），不是自己發明的寫法。
+> 不改 `xTaskCreate()` 是因為它是所有 task（包括 idle task）共用的核心 API，EDF 資訊只是 EDF task 才需要的選用屬性。因應的做法： 先 `xTaskCreate()` 拿到 `TaskHandle_t`，再用獨立 setter 設定 task 初始化需要的額外資訊（這是 FreeRTOS 的慣例，例如 `vTaskSetApplicationTaskTag( TaskHandle_t, ... )`）
 
 #### tasks.c
 
