@@ -376,6 +376,7 @@ void vTaskEDFClearLog( TickType_t xLogUntil ) PRIVILEGED_FUNCTION;
 UBaseType_t uxTaskEDFGetLogCount( void ) PRIVILEGED_FUNCTION;
 BaseType_t xTaskEDFGetLogEvent( UBaseType_t uxIndex,
                                 TaskEDFLogEvent_t * pxEvent ) PRIVILEGED_FUNCTION;
+void vTaskEDFSelectInitialTask( void ) PRIVILEGED_FUNCTION;
 
 /**
  * task. h

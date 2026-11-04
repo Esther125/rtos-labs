@@ -2,25 +2,23 @@
 
 ## 1. 題目
 
-- 幫 FreeRTOS 實作 **EDF (Earliest Deadline First) scheduler**（NYCU ESSLab，跟 lab2 在 uC/OS-II 上做的是同一個概念，這次换到 FreeRTOS 上）
+- 幫 FreeRTOS 實作 **EDF (Earliest Deadline First) scheduler**（跟 lab2 在 uC/OS-II 上做的是同一個概念，這次换到 FreeRTOS 上）
 - 關鍵提示（來自投影片）：
     - 排程決策的地方是 `vTaskSwitchContext()`
     - 幫 TCB 加上 deadline 資訊
-    - 在排程點用 deadline 最早的 ready task，**linear search 就可以**
+    - 在排程點用 deadline 找最早的 ready task
 - 測試資料（跟 lab2 一樣的兩組 task set）：
     - Task set 1 = `{ t1(1,3), t2(3,5) }`
     - Task set 2 = `{ t1(1,4), t2(2,5), t3(2,10) }`
 - 其他提示
-    - `printf()` 只能在 `main.c`（task context）呼叫，不要在 ISR 或 kernel 的 `tasks.c` 裡直接印——先緩衝起來，之後再一次印出
+    - `printf()` 只能在 `main.c`（task context）呼叫，不要在 ISR 或 kernel 的 `tasks.c` 裡直接印—。可以先 buffer 起來，之後再一次印出
     - task 建立的順序可以自己調整，因為系統預設會先跑「最後建立」的那個 task
 
 ## 2. 相關 Kernel Function
 
-這次改的是 FreeRTOS 本身排程決策的地方，不是新增獨立的 helper：
-
-- **`vTaskSwitchContext()`**：FreeRTOS 排程器真正決定「下一個要跑的 task 是誰」的地方，每次需要排程（tick 到期、task 被阻塞/喚醒等）就會呼叫
-- **`taskSELECT_HIGHEST_PRIORITY_TASK()`**：FreeRTOS 原本的 fixed-priority 選取 macro，掃 ready list bitmap 找優先權最高的 task
-- **TCB（`tskTaskControlBlock`）**：每個 task 的控制結構，`vTaskSwitchContext()` 選完就是把 `pxCurrentTCB` 指到新的 TCB
+- **`vTaskSwitchContext()`**：FreeRTOS scheduler 真正決定「下一個要跑哪個 task」的地方，每次需要排程（tick 到期、task 被阻塞/喚醒等）就會呼叫
+- **`taskSELECT_HIGHEST_PRIORITY_TASK()`**：FreeRTOS 原本的 fixed priority scheduling 中負責選下一個 task 的 macro，會掃過 ready list bitmap 找優先權最高的 task
+- **TCB（`tskTaskControlBlock`）**：每個 task 的控制結構，`vTaskSwitchContext()` 選完會把 `pxCurrentTCB` 指到新的 TCB
 
 ## 3. 做法
 
@@ -32,9 +30,10 @@
     flowchart LR
         A[main] --> B[main_lab4]
         B --> C[印出每個 task 的 c/p]
-        C --> D[反向建立 task，讓 T1 最後建立最先跑]
+        C --> D[依序建立 task]
         D --> E[vTaskEDFSetTaskInfo 設定 period/deadline]
-        E --> F[vTaskStartScheduler]
+        E --> E2[vTaskEDFSelectInitialTask 選出 deadline 最小的 task]
+        E2 --> F[vTaskStartScheduler]
         F --> G[prvLabEDFTask 迴圈]
         G --> H{tick >= 時間上限?}
         H -- 是 --> I[prvLabPrintOutputOnce 印 log]
@@ -47,16 +46,16 @@
         O --> G
     ```
 
-- **`main_lab4()`**：依 `mainLAB_TASK_SET` 建立 spec 的 task set，用 `xTaskCreate()` 建立每個 `prvLabEDFTask`，再呼叫 `vTaskEDFSetTaskInfo()` 把 task number、period、第一個 deadline 寫進 TCB：[L143-189](/lab4/main.c#L143-L189)
-- **`prvLabEDFTask()`**：每個 period 的工作迴圈——跑完 `c` ticks、標記 job 完成、把 deadline 往後推一個 period、`vTaskDelayUntil()` 睡到下一個 period：[L192-214](/lab4/main.c#L192-L214)
-- **`prvLabRunForTicks()`**：用忙等（busy-wait）消耗掉 `c` 個 tick，模擬計算時間：[L217-233](/lab4/main.c#L217-L233)
-- **`prvLabPrintOutputOnce()`**：從 task context 一次印出整個緩衝的排程 log，`xLabOutputPrinted` 旗標確保只有第一個跑到時間上限的 task 會印：[L250-284](/lab4/main.c#L250-L284)
+- **`main_lab4()`**：依 `mainLAB_TASK_SET` 建立 spec 的 task set，用 `xTaskCreate()` 依序建立每個 `prvLabEDFTask`，呼叫 `vTaskEDFSetTaskInfo()` 把 task number、period、第一個 deadline 寫進 TCB；全部建立完後呼叫 `vTaskEDFSelectInitialTask()`，直接依 deadline 選出開機第一個該跑的 task：[L123-176](/lab4/main.c#L123-L176)
+- **`prvLabEDFTask()`**：每個 period 的工作迴圈——跑完 `c` ticks、標記 job 完成、把 deadline 往後推一個 period、`vTaskDelayUntil()` 睡到下一個 period：[L180-201](/lab4/main.c#L180-L201)
+- **`prvLabRunForTicks()`**：用忙等（busy-wait）消耗掉 `c` 個 tick，模擬計算時間：[L205-213](/lab4/main.c#L205-L213)
+- **`prvLabPrintOutputOnce()`**：從 task context 一次印出整個緩衝的排程 log，`xLabOutputPrinted` 旗標確保只有第一個跑到時間上限的 task 會印：[L231-264](/lab4/main.c#L231-L264)
 
 > [!NOTE]
 > 用 `#define mainLAB_TASK_SET` 切換要跑哪組 task set（1 或 2）。
 
 > [!NOTE]
-> 建立 task 用的是反向迴圈（從最後一個 task 建到第一個），對應 `spec-hint.md` 的提示：FreeRTOS 預設會先跑「最後建立」的 task，反著建立才能讓 `T1` 最後建立、最先被排到。
+> task 建立順序本身不影響正確性：FreeRTOS 在 scheduler 開始前，`xTaskCreate()` 會把最後建立、priority 相等或更高的 task 設成 `pxCurrentTCB`（跟實際 deadline 無關），所以全部建立完、deadline 都設定好之後，額外呼叫一次 `vTaskEDFSelectInitialTask()`，重用 `prvSelectEarliestDeadlineTask()` 直接依 deadline 挑出開機第一個該跑的 task，不用依賴「刻意按順序建立」這種跟陣列排列方式綁死的技巧。
 
 ### 3.2 FreeRTOS Kernel Modified（跟原生 FreeRTOS 不一樣的地方）
 
@@ -67,7 +66,7 @@
 #### task.h
 
 - 新增 `TaskEDFLogEvent_t`（紀錄一筆排程事件：tick、是 complete 還是 preempt、from/to 的 task number）：[L89-97](/lab4/FreeRTOS_Source/include/task.h#L89-L97)
-- 新增 EDF 控制 API 宣告（`vTaskEDFSetTaskInfo`/`vTaskEDFSetDeadline`/`vTaskEDFMarkJobComplete`/`vTaskEDFClearLog`/`uxTaskEDFGetLogCount`/`xTaskEDFGetLogEvent`），完全沒有動到 `xTaskCreate()` 原本的介面：[L367-378](/lab4/FreeRTOS_Source/include/task.h#L367-L378)
+- 新增 EDF 控制 API 宣告（`vTaskEDFSetTaskInfo`/`vTaskEDFSetDeadline`/`vTaskEDFMarkJobComplete`/`vTaskEDFClearLog`/`uxTaskEDFGetLogCount`/`xTaskEDFGetLogEvent`/`vTaskEDFSelectInitialTask`），完全沒有動到 `xTaskCreate()` 原本的介面：[L367-379](/lab4/FreeRTOS_Source/include/task.h#L367-L379)
 
 #### tasks.c
 
@@ -77,10 +76,11 @@
 - 新增 `prvSelectEarliestDeadlineTask()`：linear search 掃過**所有** priority 的 ready list，從有啟用 EDF 的 task 裡挑 `xEDFAbsoluteDeadline` 最小的那個：[L3032-3089](/lab4/FreeRTOS_Source/tasks.c#L3032-L3089)
 - 新增 `prvLogEDFEvent()`：把一筆 context switch 事件寫進 buffer：[L3092-3111](/lab4/FreeRTOS_Source/tasks.c#L3092-L3111)
 - 新增 `vTaskEDFSetTaskInfo`/`vTaskEDFSetDeadline`/`vTaskEDFMarkJobComplete`/`vTaskEDFClearLog`/`uxTaskEDFGetLogCount`/`xTaskEDFGetLogEvent` 這組 API 的實作：[L3114-3195](/lab4/FreeRTOS_Source/tasks.c#L3114-L3195)
+- 新增 `vTaskEDFSelectInitialTask()`：重用 `prvSelectEarliestDeadlineTask()`，在 `main_lab4()` 建立完所有 task、設定好 deadline 之後呼叫一次，直接把 `pxCurrentTCB` 設成 deadline 最小的 task，取代「依賴建立順序」的做法：[L3200-3221](/lab4/FreeRTOS_Source/tasks.c#L3200-L3221)
 - `vTaskSwitchContext()` 改成先問 EDF：
-    - 先看上一個 task 的 job 是不是剛完成，記下來給 log 判斷 complete/preempt 用：[L3200-3211](/lab4/FreeRTOS_Source/tasks.c#L3200-L3211)
-    - 呼叫 `prvSelectEarliestDeadlineTask()`，有找到才用，找不到（沒有 EDF task ready）才 fallback 回原本的 `taskSELECT_HIGHEST_PRIORITY_TASK()`：[L3256-3276](/lab4/FreeRTOS_Source/tasks.c#L3256-L3276)
-    - 真的換了 task，而且（job 剛完成 或 新舊 task 任一邊有啟用 EDF）才記一筆 log：[L3278-3288](/lab4/FreeRTOS_Source/tasks.c#L3278-L3288)
+    - 先看上一個 task 的 job 是不是剛完成，記下來給 log 判斷 complete/preempt 用：[L3224-3235](/lab4/FreeRTOS_Source/tasks.c#L3224-L3235)
+    - 呼叫 `prvSelectEarliestDeadlineTask()`，有找到才用，找不到（沒有 EDF task ready）才 fallback 回原本的 `taskSELECT_HIGHEST_PRIORITY_TASK()`：[L3280-3300](/lab4/FreeRTOS_Source/tasks.c#L3280-L3300)
+    - 真的換了 task，而且（job 剛完成 或 新舊 task 任一邊有啟用 EDF）才記一筆 log：[L3302-3312](/lab4/FreeRTOS_Source/tasks.c#L3302-L3312)
 
 ```mermaid
 flowchart LR

@@ -387,6 +387,8 @@ PRIVILEGED_DATA static UBaseType_t uxTaskNumber = ( UBaseType_t ) 0U;
 PRIVILEGED_DATA static volatile TickType_t xNextTaskUnblockTime = ( TickType_t ) 0U; /* Initialised to portMAX_DELAY before the scheduler starts. */
 
 /* LAB4: Fixed-size event buffer used to defer EDF output until application code prints it. */
+// NOTE: PRIVILEGED_DATA 是在有 memory protect unit 的時候
+//       會保護這些變數在只能在 kernel mode 底下被 access (user application 不行)
 #define taskEDF_LOG_LENGTH    ( 32U )
 PRIVILEGED_DATA static TaskEDFLogEvent_t xEDFLog[ taskEDF_LOG_LENGTH ];
 PRIVILEGED_DATA static UBaseType_t uxEDFLogCount = ( UBaseType_t ) 0;
@@ -3162,7 +3164,7 @@ void vTaskEDFClearLog( TickType_t xLogUntil )
     taskENTER_CRITICAL();
     {
         uxEDFLogCount = ( UBaseType_t ) 0;
-        xEDFLogUntil = xLogUntil;
+        xEDFLogUntil = xLogUntil; // Log tick 的上限（超過不紀錄）
     }
     taskEXIT_CRITICAL();
 }
@@ -3192,6 +3194,30 @@ BaseType_t xTaskEDFGetLogEvent( UBaseType_t uxIndex,
     }
 
     return xReturn;
+}
+/*-----------------------------------------------------------*/
+
+/* LAB4: Pick the earliest-deadline ready task as the first task to run,
+ * instead of relying on task creation order. Call once, after all tasks'
+ * EDF info is set and before vTaskStartScheduler(). */
+void vTaskEDFSelectInitialTask( void )
+{
+    TCB_t * pxEDFTask;
+
+    taskENTER_CRITICAL();
+    {
+        pxEDFTask = prvSelectEarliestDeadlineTask();
+
+        if( pxEDFTask != NULL )
+        {
+            pxCurrentTCB = pxEDFTask;
+        }
+        else
+        {
+            mtCOVERAGE_TEST_MARKER();
+        }
+    }
+    taskEXIT_CRITICAL();
 }
 /*-----------------------------------------------------------*/
 

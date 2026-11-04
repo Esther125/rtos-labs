@@ -25,7 +25,7 @@ or 0 to run the more comprehensive test and demo application. */
 static void prvSetupHardware( void );
 
 /*
- * main_blinky() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
+ * main_lab4() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
  * main_full() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 0.
  */
 #if( mainCREATE_SIMPLE_BLINKY_DEMO_ONLY == 1 )
@@ -55,6 +55,7 @@ typedef struct xLAB_EDF_TASK_PARAMETERS
 } LabEDFTaskParameters_t;
 
 /* LAB4: Task-set definitions from spec.md. */
+// NOTE: task 變數使用 static 讓他從 external linkage -> internal linkage
 #if( mainLAB_TASK_SET == 1 )
 	static LabEDFTaskParameters_t xLabTasks[] =
 	{
@@ -72,37 +73,15 @@ typedef struct xLAB_EDF_TASK_PARAMETERS
 	#error mainLAB_TASK_SET must be 1 or 2.
 #endif
 
-/* LAB4: Forward declarations for the EDF lab application code. */
+/* LAB4: Function prototype for the application code. */
 static void prvLabEDFTask( void *pvParameters );
 static void prvLabRunForTicks( TickType_t xTicksToRun );
 static void prvLabPrintTaskName( UBaseType_t uxTaskNumber );
 static void prvLabPrintOutputOnce( void );
 
 /* LAB4: Guard so only the first task reaching the limit prints the buffered log. */
+// NOTE: pdFALSE 是 FreeRTOS 定義的 marco (其實就是 BaseType_t 0)
 static volatile BaseType_t xLabOutputPrinted = pdFALSE;
-
-/* LAB4: Local EDF API declarations cover CCS builds that include external FreeRTOS headers. */
-#ifndef taskEDF_LOG_EVENT_DECLARED
-typedef struct xTASK_EDF_LOG_EVENT
-{
-	TickType_t xTime;
-	BaseType_t xIsComplete;
-	UBaseType_t uxFromTaskNumber;
-	UBaseType_t uxToTaskNumber;
-} TaskEDFLogEvent_t;
-#endif
-
-void vTaskEDFSetTaskInfo( TaskHandle_t xTask,
-						  UBaseType_t uxTaskNumber,
-						  TickType_t xPeriod,
-						  TickType_t xAbsoluteDeadline );
-void vTaskEDFSetDeadline( TaskHandle_t xTask,
-						  TickType_t xAbsoluteDeadline );
-void vTaskEDFMarkJobComplete( void );
-void vTaskEDFClearLog( TickType_t xLogUntil );
-UBaseType_t uxTaskEDFGetLogCount( void );
-BaseType_t xTaskEDFGetLogEvent( UBaseType_t uxIndex,
-								TaskEDFLogEvent_t * pxEvent );
 
 /* The heap is allocated here so the "persistent" qualifier can be used.  This
 requires configAPPLICATION_ALLOCATED_HEAP to be set to 1 in FreeRTOSConfig.h.
@@ -144,6 +123,8 @@ int main( void )
 static void main_lab4( void )
 {
 	UBaseType_t uxIndex;
+	// 計算 task 的數量
+	// NOTE: 這裡要轉 UBaseType_t 類型是因為 size_t 在不同平台上長度可能不一樣
 	const UBaseType_t uxTaskCount = ( UBaseType_t ) ( sizeof( xLabTasks ) / sizeof( xLabTasks[ 0 ] ) );
 
 	vTaskEDFClearLog( mainLAB_TICK_LIMIT );
@@ -156,34 +137,41 @@ static void main_lab4( void )
 				( int ) xLabTasks[ uxIndex ].xPeriod );
 	}
 
-	for( uxIndex = uxTaskCount; uxIndex > ( UBaseType_t ) 0; uxIndex-- )
+	for( uxIndex = ( UBaseType_t ) 0; uxIndex < uxTaskCount; uxIndex++ )
 	{
-		TaskHandle_t xTaskHandle = NULL;
-		LabEDFTaskParameters_t * const pxTask = &( xLabTasks[ uxIndex - ( UBaseType_t ) 1 ] );
-		char pcTaskName[ 3 ];
+		TaskHandle_t xTaskHandle = NULL; // 指向 TCB 的 pointer (opaque pointer)
+		LabEDFTaskParameters_t * const pxTask = &( xLabTasks[ uxIndex ] ); // NOTE: pxTask 是一個 const 指標，不能更改它指向的位置
 
+		// 組出 task name (debug 方便)
+		char pcTaskName[ 3 ];
 		pcTaskName[ 0 ] = 'T';
 		pcTaskName[ 1 ] = ( char ) ( '0' + pxTask->uxTaskNumber );
 		pcTaskName[ 2 ] = '\0';
 
+		// 1. 創建 Task
 		xTaskCreate( prvLabEDFTask,
 					 pcTaskName,
 					 configMINIMAL_STACK_SIZE,
-					 pxTask,
+					 pxTask,  // 傳給任務的參數
 					 mainLAB_TASK_PRIORITY,
 					 &xTaskHandle );
 		configASSERT( xTaskHandle != NULL );
-
+		
+		// 2. 把 task 初始化
 		if( xTaskHandle != NULL )
 		{
 			vTaskEDFSetTaskInfo( xTaskHandle,
 								  pxTask->uxTaskNumber,
 								  pxTask->xPeriod,
-								  pxTask->xPeriod );
+								  pxTask->xPeriod ); // 第一個 absolute deadline = period
 		}
 	}
 
-	vTaskStartScheduler();
+	// 3. 依 deadline 選出第一個該跑的 task，
+	vTaskEDFSelectInitialTask();
+
+	// 4. 開始 multitasking
+	vTaskStartScheduler(); 
 
 	for( ;; );
 }
@@ -217,18 +205,11 @@ static void prvLabEDFTask( void *pvParameters )
 /* LAB4: Consume whole scheduler ticks as the lab's computation-time model. */
 static void prvLabRunForTicks( TickType_t xTicksToRun )
 {
-	TickType_t xExecutedTicks = ( TickType_t ) 0;
-	TickType_t xLastTick = xTaskGetTickCount();
+	const TickType_t xStartTick = xTaskGetTickCount();
 
-	while( xExecutedTicks < xTicksToRun )
+	while( ( xTaskGetTickCount() - xStartTick ) < xTicksToRun )
 	{
-		const TickType_t xCurrentTick = xTaskGetTickCount();
-
-		if( xCurrentTick != xLastTick )
-		{
-			xExecutedTicks++;
-			xLastTick = xCurrentTick;
-		}
+		/* busy wait */
 	}
 }
 /*-----------------------------------------------------------*/
