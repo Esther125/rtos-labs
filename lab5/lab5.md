@@ -142,16 +142,12 @@ portRESTORE_CONTEXT .macro
         A[usLab5ValidCopyIndex 被呼叫] --> B{selector 是哨兵值?}
         B -- 是 --> D{兩個 slot 都有效?}
         B -- 否 --> C{selector 指的 slot 有效?}
-        C -- 是 --> R1["回傳 selector 指的 slot
-        （正常穩定運作）"]
+        C -- 是 --> R1["回傳 selector 指的 slot（正常穩定運作）"]
         C -- 否 --> D
-        D -- 是 --> E["回傳 sequence 較大的那個
-        （都有效，比新舊）"]
+        D -- 是 --> E["回傳 sequence 較大的那個（都有效，比新舊）"]
         D -- 否 --> F{只有一個有效?}
-        F -- 是 --> G["回傳那一個
-        （另一個剛好失效）"]
-        F -- 否 --> H["都無效，回傳哨兵值
-        （真正第一次開機）"]
+        F -- 是 --> G["回傳那一個（另一個剛好失效）"]
+        F -- 否 --> H["都無效，回傳哨兵值（真正第一次開機）"]
     ```
 
     `prvLab5Commit()` 拿到這個回傳值後：有效的話用 `^ 1U` 算出下次要寫的 slot（避開目前有效的那個）；都無效（哨兵值）就直接用 slot 0，當作第一次 commit。
