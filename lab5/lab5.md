@@ -24,9 +24,6 @@
     }
     ```
 
-- Commit 跟 restore 都規定要照順序做：
-    - Commit：`ucHeap` → SRAM → CPU registers
-    - Restore：`ucHeap` → SRAM → CPU registers
 - 其他要求
     - 用 `rand()` 觸發 power off，但 power fail 的間隔不能一直比 commit 間隔短，否則會 stagnation（永遠卡在同一個點重複失敗）
     - 真的要備份/還原完整的 SRAM（`.bss`/`.data`）、`ucHeap`、CPU registers——只備份一個計數器 `i` 是不合格的，會被扣分
@@ -46,6 +43,47 @@
 - **`portSAVE_CONTEXT` / `portRESTORE_CONTEXT`**：port 層的組語 macro，原本是給一般 context switch 用的。作用是把目前所有暫存器 push 到 current task 自己的 stack 上（save），或是從 stack pop 回暫存器（restore）
 - **`pxCurrentTCB`**：FreeRTOS 內部指向「目前執行的 task」的 TCB，`portSAVE_CONTEXT` 會把算出來的 stack pointer 存回這裡
 - **`vTaskStartScheduler()`**：啟動 scheduler，讓 FreeRTOS 開始做 context switch、tick interrupt 開始跑
+
+### 2.1 組語詳細解釋
+
+逐行解釋 `portSAVE_CONTEXT`/`portRESTORE_CONTEXT`（[FreeRTOS_Source/portable/CCS/MSP430X/portext.asm](/lab5/FreeRTOS_Source/portable/CCS/MSP430X/portext.asm#L49-L71)）做了什麼：
+
+```asm
+portSAVE_CONTEXT .macro
+    pushm_x	#12, r15
+    mov.w	&usCriticalNesting, r14
+    push_x r14
+    mov_x	&pxCurrentTCB, r12
+    mov_x	sp, 0( r12 )
+    .endm
+```
+
+- `pushm_x #12, r15`：把 `r15` 往下數 12 個通用暫存器（`r15`~`r4`）一次 push 上目前的 stack。`r0`（PC）、`r1`（SP）、`r2`（SR）、`r3`（常數產生器，不是真正的儲存用暫存器）都不在這裡處理
+- `mov.w &usCriticalNesting, r14` / `push_x r14`：把 FreeRTOS 記錄「critical section 巢狀深度」的全域變數也存進 stack，restore 時要用同一個深度還原回去
+- `mov_x &pxCurrentTCB, r12`：讀出「目前是哪個 task」這個全域指標
+- `mov_x sp, 0( r12 )`：把**現在的 SP**（剛剛 push 完、往下移動後的位置）寫進 `pxCurrentTCB` 指到的 TCB 的第一個欄位——也就是 `pxTopOfStack`（規定一定要是 TCB 的第一個成員）
+
+```asm
+portRESTORE_CONTEXT .macro
+    mov_x	&pxCurrentTCB, r12
+    mov_x	@r12, sp
+    pop_x	r15
+    mov.w	r15, &usCriticalNesting
+    popm_x	#12, r15
+    nop
+    pop.w	sr
+    nop
+    ret_x
+    .endm
+```
+
+- `mov_x &pxCurrentTCB, r12` / `mov_x @r12, sp`：讀 `pxCurrentTCB` 指到的 TCB 的 `pxTopOfStack`，寫回 SP——把 CPU 的 stack pointer 切換到「這個 task 自己的 stack」
+- `pop_x r15` / `mov.w r15, &usCriticalNesting`：把 critical nesting 深度 pop 回來
+- `popm_x #12, r15`：從（剛設好的）SP 指的位址，把 `r4`~`r15` 這 12 個通用暫存器 pop 回來
+- `pop.w sr`：把 SR（狀態暫存器，含中斷啟用位元）pop 回來；前後的 `nop` 是 FreeRTOS 原生 port 既有的寫法，用來留出指令管線的安全間隔，不是這個 lab 加的
+- `ret_x`：真正的 return 指令，從 stack pop 出「返回位址」直接跳過去。這個返回位址不是這兩個巨集自己存的，而是呼叫端（例如 `vLab5SaveCurrentTaskContext()`）被呼叫當下，硬體呼叫慣例自動 push 上去的——這就是 R0（PC）實際上被「備份」的方式，不需要另外寫一行去存它
+
+**為什麼這個 lab 要借用它**：這兩個巨集原本是給 FreeRTOS 正常的 task context switch 用的（task 讓出 CPU 時 `portSAVE_CONTEXT`，排程器選中下一個 task 時對它做 `portRESTORE_CONTEXT`）。這個 lab 沒有重新發明一套「怎麼存/還原暫存器」的邏輯，而是直接重用這組 FreeRTOS 本身已經在用、已經驗證過的機制，包成 `vLab5SaveCurrentTaskContext()`/`vLab5RestoreCurrentTaskContext()`（見 3.2 的 Port Assembly 小節）。
 
 ## 3. 做法
 
@@ -95,9 +133,11 @@
 
     ```mermaid
     flowchart LR
-        A[usLab5ValidCopyIndex 被呼叫] --> B{selector 指的 slot 有效?}
-        B -- 是 --> C[回傳 selector 指的 slot]
-        B -- 否 --> D{兩個 slot 都有效?}
+        A[usLab5ValidCopyIndex 被呼叫] --> B{selector 是哨兵值?}
+        B -- 是 --> D{兩個 slot 都有效?}
+        B -- 否 --> C{selector 指的 slot 有效?}
+        C -- 是 --> R1[回傳 selector 指的 slot]
+        C -- 否 --> D
         D -- 是 --> E[回傳 sequence 較大的那個]
         D -- 否 --> F{只有一個有效?}
         F -- 是 --> G[回傳那一個]
@@ -113,6 +153,9 @@
 
 - 新增 `vLab5SaveCurrentTaskContext`：呼叫 `portSAVE_CONTEXT` 把目前暫存器存到 task 自己的 stack，緊接著呼叫 `portRESTORE_CONTEXT` 立刻還原，讓 C code 可以照常往下執行（不是真正切換 task，只是把「現在的狀態」做成一份可以留在 stack 上的快照）：[L142-153](/lab5/FreeRTOS_Source/portable/CCS/MSP430X/portext.asm#L142-L153)
 - 新增 `vLab5RestoreCurrentTaskContext`：只呼叫 `portRESTORE_CONTEXT`，把 restore 進來的 SRAM（裡面有上次存的那份快照）pop 回暫存器，執行流程會接回當初呼叫 `vLab5SaveCurrentTaskContext()` 的地方繼續跑：[L156-163](/lab5/FreeRTOS_Source/portable/CCS/MSP430X/portext.asm#L156-L163)
+
+> [!NOTE]
+> CPU registers 的備份沒有另外宣告一個獨立的陣列，是直接借用 FreeRTOS 原生的 context-save 機制（`portSAVE_CONTEXT`，[FreeRTOS_Source/portable/CCS/MSP430X/portext.asm](/lab5/FreeRTOS_Source/portable/CCS/MSP430X/portext.asm)）。因為這個 project 用 `configAPPLICATION_ALLOCATED_HEAP`，task 的 stack 本來就活在 `ucHeap` 裡，借用這個機制讓暫存器被 push 到 stack 上之後，接著整個 `ucHeap` 備份時就會順便被帶走，不需要額外的 register 陣列，也不用多管理一組 ping-pong。
 
 #### Link Command File (lnk_msp430fr5994.cmd)
 
