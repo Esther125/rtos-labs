@@ -32,7 +32,7 @@ static void prvSetupHardware( void );
  * main_blinky() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
  * main_full() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 0.
  */
-/* #LAB5: Blink-only mode uses main_lab() for the checkpoint demo. */
+// LAB5: blink-only 模式會改呼叫 main_lab() 進入 checkpoint demo
 #if( mainCREATE_SIMPLE_BLINKY_DEMO_ONLY == 1 )
 	extern void main_lab( void );
 #else
@@ -47,6 +47,20 @@ void vApplicationStackOverflowHook( TaskHandle_t pxTask, char *pcTaskName );
 void vApplicationTickHook( void );
 void vApplicationSetupTimerInterrupt( void );
 
+/* ============================== 常數 ===============================*/
+// LAB5: ping pong buffer 機制本身用到的常數
+#define lab5CHECKPOINT_MAGIC            ( ( uint32_t ) 0xC0DEC10CUL )
+#define lab5CHECKPOINT_COPIES           ( 2U )
+
+// LAB5: 要備份的 live SRAM 範圍
+#define lab5SRAM_START                  ( ( uint8_t * ) 0x1C00U )
+#define lab5SRAM_SIZE                   ( ( size_t ) 0x0C00U )
+
+// LAB5: demo task 本身的參數 
+#define lab5TASK_STACK_SIZE             ( configMINIMAL_STACK_SIZE * 2U )
+#define lab5TASK_PRIORITY               ( tskIDLE_PRIORITY + 1U )
+
+/* ============================== 記憶體分配 ===============================*/
 /* The heap is allocated here so the "persistent" qualifier can be used.  This
 requires configAPPLICATION_ALLOCATED_HEAP to be set to 1 in FreeRTOSConfig.h.
 See http://www.freertos.org/a00111.html for more information. */
@@ -57,8 +71,8 @@ See http://www.freertos.org/a00111.html for more information. */
 #endif
 uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] = { 0 };
 
-/* #LAB5: Persistent restore seed is kept outside the checkpoint copy so
-restored executions do not replay the same rand() power-fail point forever. */
+// LAB5: 另外存 random seed（不包進 checkpoint 備份）
+// 確保每次 restore 後不會重複同一個 rand() 斷電點
 #ifdef __ICC430__
 	__persistent
 #else
@@ -66,16 +80,7 @@ restored executions do not replay the same rand() power-fail point forever. */
 #endif
 static uint32_t ulLab5RestoreSeed = 1UL;
 
-/* #LAB5: Checkpoint control constants for two array-backed FRAM2 copies. */
-#define lab5CHECKPOINT_MAGIC            ( ( uint32_t ) 0xC0DEC10CUL )
-#define lab5CHECKPOINT_COPIES           ( 2U )
-#define lab5SRAM_START                  ( ( uint8_t * ) 0x1C00U )
-#define lab5SRAM_SIZE                   ( ( size_t ) 0x0C00U )
-#define lab5TASK_STACK_SIZE             ( configMINIMAL_STACK_SIZE * 2U )
-#define lab5TASK_PRIORITY               ( tskIDLE_PRIORITY + 1U )
-
-/* #LAB5: Persistent selector records the newest completed array slot so
-restore does not fall back to an older slot when header sequence ties occur. */
+// LAB5: 記錄最新一次完整 commit 的 slot index
 #ifdef __ICC430__
 	__persistent
 #else
@@ -83,24 +88,15 @@ restore does not fall back to an older slot when header sequence ties occur. */
 #endif
 static uint16_t usLab5LastCommitIndex = lab5CHECKPOINT_COPIES;
 
-#ifdef __ICC430__
-	__persistent
-#else
-	#pragma PERSISTENT( ulLab5CommitSequence )
-#endif
-static uint32_t ulLab5CommitSequence = 0UL;
-
+// LAB5: 一份 commit 的 metadata
 typedef struct Lab5CheckpointHeader
 {
 	uint32_t ulMagic;
 	uint32_t ulSequence;
-	uint32_t ulHeapSize;
-	uint32_t ulSramSize;
-	uint32_t ulChecksum;
 } Lab5CheckpointHeader_t;
 
-/* #LAB5: FRAM2 backup arrays replace the old fixed-address checkpoint slots.
-They are placed in .lab5_checkpoint by the FR5994 linker command file. */
+// LAB5: 開 ping pong buffer，並透過 pragma 放到 .lab5_checkpoint data section
+// linker command file 會設定把 .lab5_checkpoint 放到 FRAM2 裡面 
 #ifdef __ICC430__
 	__persistent
 #else
@@ -122,6 +118,7 @@ static uint8_t ucLab5BackupSram[ lab5CHECKPOINT_COPIES ][ lab5SRAM_SIZE ];
 #endif
 static Lab5CheckpointHeader_t xLab5BackupHeader[ lab5CHECKPOINT_COPIES ];
 
+/* ==================== 自定義 function 的 function prototype =====================*/
 extern void vLab5SaveCurrentTaskContext( void );
 extern void vLab5RestoreCurrentTaskContext( void );
 
@@ -129,14 +126,8 @@ static void prvLab5Task( void *pvParameters );
 static void prvLab5Commit( void );
 static void prvLab5RestoreIfNeeded( void );
 static void prvLab5PowerOff( void );
-static uint32_t ulLab5ChecksumBytes( uint32_t ulChecksum,
-                                     const uint8_t *pucData,
-                                     size_t xSize );
-static uint32_t ulLab5CopyChecksum( uint16_t usCopyIndex );
 static uint16_t usLab5SlotIsValid( uint16_t usCopyIndex );
-static uint16_t usLab5NextCopyIndex( void );
 static uint16_t usLab5ValidCopyIndex( void );
-static uint32_t ulLab5LatestSequence( void );
 
 /*-----------------------------------------------------------*/
 
@@ -148,7 +139,7 @@ int main( void )
 	/* The mainCREATE_SIMPLE_BLINKY_DEMO_ONLY setting is described at the top
 	of this file. */
 
-	/* #LAB5: Dispatch blink-only mode to the checkpoint lab entry point. */
+	// LAB5: blink-only 模式導向 checkpoint lab 的進入點
 	#if( mainCREATE_SIMPLE_BLINKY_DEMO_ONLY == 1 )
 	{
 		main_lab();
@@ -163,8 +154,7 @@ int main( void )
 }
 /*-----------------------------------------------------------*/
 
-/* #LAB5: Lab entry point replaces the blinky demo in blink-only mode and
-restores a checkpoint before creating fresh tasks. */
+// LAB5: 這個 lab 的 entry point
 void main_lab( void )
 {
 	prvLab5RestoreIfNeeded();
@@ -182,8 +172,7 @@ void main_lab( void )
 }
 /*-----------------------------------------------------------*/
 
-/* #LAB5: Demo task follows the lab flow: increment, maybe power off, commit
-every ten iterations, then print the current counter. */
+// LAB5: demo task：計數器遞增、視情況斷電、每十次 commit 一次、印出目前計數
 static void prvLab5Task( void *pvParameters )
 {
 	static uint16_t usCounter = 0U;
@@ -195,7 +184,7 @@ static void prvLab5Task( void *pvParameters )
 	for( ;; )
 	{
 		usCounter++;
-		// 1. Set random power off and try to avoid stagnation
+		// 1. 用 rand() 隨機觸發斷電，並避免 stagnation
 		if( ( usCounter > 10U ) &&
 		    ( ( usCounter - usLastCommit ) >= 4U ) &&
 		    ( ( rand() % 23 ) == 0 ) )
@@ -203,14 +192,14 @@ static void prvLab5Task( void *pvParameters )
 			printf( "%u <- Power off\r\n", usCounter );
 			prvLab5PowerOff();
 		}
-		// 2. Checkpoint commitment
+		// 2. Checkpoint commit
 		if( ( usCounter % 10U ) == 0U )
 		{
 			prvLab5Commit();
 			usLastCommit = usCounter;
 			printf( "%u <- commit\r\n", usCounter );
 		}
-		// 3. Counter Logging
+		// 3. 印出目前計數
 		else
 		{
 			printf( "%u\r\n", usCounter );
@@ -221,58 +210,58 @@ static void prvLab5Task( void *pvParameters )
 }
 /*-----------------------------------------------------------*/
 
-/* #LAB5: Commit materializes the running task CPU context, then backs up
-ucHeap followed by SRAM into the inactive FRAM checkpoint slot. */
+// LAB5: commit 前先把目前 task 的 CPU context 定格
+// 再依序備份 ucHeap、SRAM 到目前沒在用的那個 FRAM checkpoint slot
 static void prvLab5Commit( void )
 {
-	const uint16_t usTargetIndex = usLab5NextCopyIndex();
+	const uint16_t usValidIndex = usLab5ValidCopyIndex();
+	const uint16_t usTargetIndex = ( usValidIndex < lab5CHECKPOINT_COPIES ) ? ( uint16_t ) ( usValidIndex ^ 1U ) : 0U;
+	const uint32_t ulPrevSequence = ( usValidIndex < lab5CHECKPOINT_COPIES ) ? xLab5BackupHeader[ usValidIndex ].ulSequence : 0UL;
+	const uint32_t ulNextSequence = ulPrevSequence + 1UL;
 	Lab5CheckpointHeader_t * const pxHeader = &xLab5BackupHeader[ usTargetIndex ];
-	const uint32_t ulNextSequence = ulLab5LatestSequence() + 1UL;
-	uint32_t ulChecksum;
 
 	taskENTER_CRITICAL();
 	{
+		// 1. 備份 CPU registers
 		vLab5SaveCurrentTaskContext();
 
 		pxHeader->ulMagic = 0UL;
+		// 2. 備份 ucHeap
 		memcpy( ucLab5BackupHeap[ usTargetIndex ], ucHeap, configTOTAL_HEAP_SIZE );
+		// 3. 備份 SRAM
 		memcpy( ucLab5BackupSram[ usTargetIndex ], lab5SRAM_START, lab5SRAM_SIZE );
 
-		ulChecksum = ulLab5CopyChecksum( usTargetIndex );
-
 		pxHeader->ulSequence = ulNextSequence;
-		pxHeader->ulHeapSize = configTOTAL_HEAP_SIZE;
-		pxHeader->ulSramSize = lab5SRAM_SIZE;
-		pxHeader->ulChecksum = ulChecksum;
 		pxHeader->ulMagic = lab5CHECKPOINT_MAGIC;
 		usLab5LastCommitIndex = usTargetIndex;
-		ulLab5CommitSequence = ulNextSequence;
 	}
 	taskEXIT_CRITICAL();
 }
 /*-----------------------------------------------------------*/
 
-/* #LAB5: Restore when a valid FRAM checkpoint exists; the order is ucHeap,
-SRAM, then the saved FreeRTOS CPU context. */
+// LAB5: 如果有有效的 FRAM checkpoint 就 restore
+//       順序：1. ucHeap 2. SRAM 3. CPU register
 static void prvLab5RestoreIfNeeded( void )
 {
 	const uint16_t usSourceIndex = usLab5ValidCopyIndex();
 
 	if( usSourceIndex < lab5CHECKPOINT_COPIES )
 	{
+		// 1. 還原 ucHeap
 		memcpy( ucHeap, ucLab5BackupHeap[ usSourceIndex ], configTOTAL_HEAP_SIZE );
+		// 2. 還原 SRAM
 		memcpy( lab5SRAM_START, ucLab5BackupSram[ usSourceIndex ], lab5SRAM_SIZE );
 		PMM_clearInterrupt( PMM_LPM5_INTERRUPT );
 		ulLab5RestoreSeed++;
 		srand( ( unsigned int ) ulLab5RestoreSeed );
 		vApplicationSetupTimerInterrupt();
+		// 3. 還原 CPU registers
 		vLab5RestoreCurrentTaskContext();
 	}
 }
 /*-----------------------------------------------------------*/
 
-/* #LAB5: Enter LPM4.5 to emulate power loss while preserving FRAM checkpoint
-copies for the next reset. */
+// LAB5: 進入 LPM4.5 模擬斷電
 static void prvLab5PowerOff( void )
 {
 	PMM_turnOffRegulator();
@@ -283,81 +272,22 @@ static void prvLab5PowerOff( void )
 }
 /*-----------------------------------------------------------*/
 
-/* #LAB5: Continue the FNV-style checksum across one checkpoint buffer. */
-static uint32_t ulLab5ChecksumBytes( uint32_t ulChecksum,
-                                     const uint8_t *pucData,
-                                     size_t xSize )
-{
-	size_t x;
-
-	for( x = 0U; x < xSize; x++ )
-	{
-		ulChecksum ^= pucData[ x ];
-		ulChecksum *= 16777619UL;
-	}
-
-	return ulChecksum;
-}
-/*-----------------------------------------------------------*/
-
-/* #LAB5: Checksum the heap array and SRAM array that form one checkpoint
-copy. */
-static uint32_t ulLab5CopyChecksum( uint16_t usCopyIndex )
-{
-	uint32_t ulChecksum = 2166136261UL;
-
-	ulChecksum = ulLab5ChecksumBytes( ulChecksum,
-	                                  ucLab5BackupHeap[ usCopyIndex ],
-	                                  configTOTAL_HEAP_SIZE );
-	ulChecksum = ulLab5ChecksumBytes( ulChecksum,
-	                                  ucLab5BackupSram[ usCopyIndex ],
-	                                  lab5SRAM_SIZE );
-
-	return ulChecksum;
-}
-/*-----------------------------------------------------------*/
-
-/* #LAB5: A slot is usable when the final magic and recorded sizes match the
-current checkpoint layout. */
+// LAB5: 檢查單一個 slot 的 magic number，確認他是合法的 slot
 static uint16_t usLab5SlotIsValid( uint16_t usCopyIndex )
 {
 	Lab5CheckpointHeader_t * const pxHeader = &xLab5BackupHeader[ usCopyIndex ];
 
-	return ( uint16_t ) ( ( pxHeader->ulMagic == lab5CHECKPOINT_MAGIC ) &&
-	                      ( pxHeader->ulHeapSize == configTOTAL_HEAP_SIZE ) &&
-	                      ( pxHeader->ulSramSize == lab5SRAM_SIZE ) );
+	return ( uint16_t ) ( pxHeader->ulMagic == lab5CHECKPOINT_MAGIC );
 }
 /*-----------------------------------------------------------*/
 
-/* #LAB5: Pick the inactive backup slot so a failed commit does not overwrite
-the most recent valid checkpoint. */
-static uint16_t usLab5NextCopyIndex( void )
-{
-	uint16_t usValidIndex = usLab5LastCommitIndex;
-
-	// No valid slot exists
-	if( ( usValidIndex >= lab5CHECKPOINT_COPIES ) ||
-	    ( usLab5SlotIsValid( usValidIndex ) == 0U ) )
-	{
-		usValidIndex = usLab5ValidCopyIndex();
-	}
-	// Valid Slot exists
-	if( usValidIndex < lab5CHECKPOINT_COPIES )
-	{
-		return ( uint16_t ) ( usValidIndex ^ 1U );
-	}
-
-	return 0U;
-}
-/*-----------------------------------------------------------*/
-
-/* #LAB5: Select the newest valid checkpoint from the two FRAM2 backup slots.
-Checksum is recorded during commit, but restore only gates on magic and sizes
-so the array-backed demo does not get stuck on an older slot. */
+// LAB5: 從兩個 FRAM2 backup slot 裡挑出最新且合法的 checkpoint slot
 static uint16_t usLab5ValidCopyIndex( void )
 {
 	Lab5CheckpointHeader_t * const pxHeader0 = &xLab5BackupHeader[ 0U ];
 	Lab5CheckpointHeader_t * const pxHeader1 = &xLab5BackupHeader[ 1U ];
+	
+	// 驗證 slot 是不是合法的
 	const uint16_t usValid0 = usLab5SlotIsValid( 0U );
 	const uint16_t usValid1 = usLab5SlotIsValid( 1U );
 
@@ -367,6 +297,7 @@ static uint16_t usLab5ValidCopyIndex( void )
 		return usLab5LastCommitIndex;
 	}
 
+	// 兩個 slot 都有效 -> 選 sequence 大的（新的）
 	if( ( usValid0 != 0U ) && ( usValid1 != 0U ) )
 	{
 		return ( pxHeader1->ulSequence > pxHeader0->ulSequence ) ? 1U : 0U;
@@ -382,28 +313,7 @@ static uint16_t usLab5ValidCopyIndex( void )
 		return 1U;
 	}
 
-	return lab5CHECKPOINT_COPIES;
-}
-/*-----------------------------------------------------------*/
-
-/* #LAB5: Return the newest checkpoint sequence number, or zero when neither
-backup slot is valid yet. */
-static uint32_t ulLab5LatestSequence( void )
-{
-	const uint16_t usValidIndex = usLab5ValidCopyIndex();
-
-	if( ( usLab5LastCommitIndex < lab5CHECKPOINT_COPIES ) &&
-	    ( usLab5SlotIsValid( usLab5LastCommitIndex ) != 0U ) )
-	{
-		return ulLab5CommitSequence;
-	}
-
-	if( usValidIndex < lab5CHECKPOINT_COPIES )
-	{
-		return xLab5BackupHeader[ usValidIndex ].ulSequence;
-	}
-
-	return 0UL;
+	return lab5CHECKPOINT_COPIES; // 兩個 slot 都無效，回傳哨兵值
 }
 /*-----------------------------------------------------------*/
 
