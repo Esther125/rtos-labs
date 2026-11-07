@@ -95,7 +95,6 @@ portRESTORE_CONTEXT .macro
 ### 3.1 Application Code
 
 - refer to : [main.c](/lab5/main.c)
-
     ```mermaid
     flowchart LR
         A[main] --> A2[prvSetupHardware]
@@ -113,7 +112,6 @@ portRESTORE_CONTEXT .macro
         K --> L[vTaskDelay]
         L --> F
     ```
-
 - **`main_lab()`**：先呼叫 `prvLab5RestoreIfNeeded()`，再建立 `prvLab5Task`、啟動 scheduler
 - **`prvLab5Task()`**：每輪迴圈計數 `usCounter++`，用 `rand()` 決定要不要 power off，每 10 次呼叫一次 `prvLab5Commit()`，其餘時候單純印出目前的 counter
 
@@ -136,7 +134,6 @@ portRESTORE_CONTEXT .macro
 - `prvLab5RestoreIfNeeded()`：依序還原 `ucHeap`、SRAM，重新設定 tick timer，最後還原 CPU context：[L235-252](/lab5/main.c#L235-L252)
 - `prvLab5PowerOff()`：進 LPM4.5 模擬斷電：[L256-263](/lab5/main.c#L256-L263)
 - slot 有效性判斷、挑選最新 slot 的 helper：[L267-302](/lab5/main.c#L267-L302)
-
     ```mermaid
     flowchart LR
         A[usLab5ValidCopyIndex 被呼叫] --> B{兩個 slot 都有效?}
@@ -145,8 +142,8 @@ portRESTORE_CONTEXT .macro
         D -- 是 --> E["回傳那一個"]
         D -- 否 --> F["都無效，回傳哨兵值（真正第一次開機）"]
     ```
-
-    一律直接比較兩個 slot 自己 header 裡的 `ulSequence`，不依賴任何額外的 selector 變數——這樣即使「上次 commit 剛好只差最後一步沒完成」，也能正確挑到序號較新的那個，不會因為信任了某個過時的捷徑而漏掉真正最新的 slot。`prvLab5Commit()` 拿到這個回傳值後：有效的話用 `^ 1U` 算出下次要寫的 slot（避開目前有效的那個）；都無效（哨兵值）就直接用 slot 0，當作第一次 commit。
+    一律直接比較兩個 slot 自己 header 裡的 `ulSequence`，不依賴任何額外的 selector 變數——這樣即使「上次 commit 剛好只差最後一步沒完成」，也能正確挑到序號較新的那個，不會因為信任了某個過時的捷徑而漏掉真正最新的 slot。
+    `prvLab5Commit()` 拿到這個回傳值後：有效的話用 `^ 1U` 算出下次要寫的 slot（避開目前有效的那個）；都無效（哨兵值）就直接用 slot 0，當作第一次 commit。
 
 > [!IMPORTANT]
 > Commit 的實際程式碼順序是「先存 CPU context，再複製 heap/SRAM」，跟教材寫的「`ucHeap` → SRAM → CPU registers」順序看起來不一樣是因為 `vLab5SaveCurrentTaskContext()` 是把暫存器 push 到**目前 task 自己的 stack 上**。這個 project 用 `xTaskCreate()` 動態配置 task（`configAPPLICATION_ALLOCATED_HEAP=1`），task 的 stack 其實是 `pvPortMalloc()` 從 **`ucHeap`** 裡切出來的一塊，**所以必須先把暫存器 push 進 stack，接著複製 `ucHeap` 才會包含這份「CPU registers」的內容**
