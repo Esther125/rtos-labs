@@ -1,0 +1,38 @@
+# Build output
+Large_Data/
+Debug/
+Release/
+*.obj
+*.o
+*.d
+*.map
+*.out
+*.hex
+*.elf
+*.bin
+*.lst
+*.su
+
+# CCS / Eclipse generated local files
+.metadata/
+.recommenders/
+.jxbrowser-data/
+RemoteSystemsTempFiles/
+dvt/
+.launches/
+*.launch
+*.log
+
+# IAR generated output
+*.dep
+*.ewt
+settings/
+
+# Local temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Alternate git metadata used only because .git is read-only in this environment
+.gitrepo/
