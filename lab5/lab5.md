@@ -129,28 +129,24 @@ portRESTORE_CONTEXT .macro
 
 #### main.c
 
-- checkpoint 相關常數、兩份 backup array（`ucLab5BackupHeap`/`ucLab5BackupSram`/`xLab5BackupHeader`）、persistent selector（`usLab5LastCommitIndex`）宣告：[L63-132](/lab5/main.c#L63-L132)
-- `main_lab()`：開機先 restore，再建立 demo task、啟動 scheduler：[L160-174](/lab5/main.c#L160-L174)
-- `prvLab5Task()`：demo task 本體：[L178-212](/lab5/main.c#L178-L212)
-- `prvLab5Commit()`：先呼叫 `usLab5ValidCopyIndex()` 拿到目前有效的 slot，直接用 `^ 1U` 算出要寫的 slot、用它的 `ulSequence + 1` 算出下個序號（都無效時分別預設 slot 0、序號 1），再依序存 CPU context、把 `ucHeap`、SRAM 複製到那個 slot，最後才寫 `magic` 跟更新 selector：[L215-239](/lab5/main.c#L215-L239)
-- `prvLab5RestoreIfNeeded()`：依序還原 `ucHeap`、SRAM，重新設定 tick timer，最後還原 CPU context：[L244-261](/lab5/main.c#L244-L261)
-- `prvLab5PowerOff()`：進 LPM4.5 模擬斷電：[L265-272](/lab5/main.c#L265-L272)
-- slot 有效性判斷的 helper：[L276-317](/lab5/main.c#L276-L317)
+- checkpoint 相關常數、兩份 backup array（`ucLab5BackupHeap`/`ucLab5BackupSram`/`xLab5BackupHeader`）宣告：[L63-122](/lab5/main.c#L63-L122)
+- `main_lab()`：開機先 restore，再建立 demo task、啟動 scheduler：[L150-164](/lab5/main.c#L150-L164)
+- `prvLab5Task()`：demo task 本體：[L168-202](/lab5/main.c#L168-L202)
+- `prvLab5Commit()`：先呼叫 `usLab5ValidCopyIndex()` 拿到目前有效的 slot，直接用 `^ 1U` 算出要寫的 slot、用它的 `ulSequence + 1` 算出下個序號（都無效時分別預設 slot 0、序號 1），再依序存 CPU context、把 `ucHeap`、SRAM 複製到那個 slot，最後才寫 `magic`：[L207-230](/lab5/main.c#L207-L230)
+- `prvLab5RestoreIfNeeded()`：依序還原 `ucHeap`、SRAM，重新設定 tick timer，最後還原 CPU context：[L235-252](/lab5/main.c#L235-L252)
+- `prvLab5PowerOff()`：進 LPM4.5 模擬斷電：[L256-263](/lab5/main.c#L256-L263)
+- slot 有效性判斷、挑選最新 slot 的 helper：[L267-302](/lab5/main.c#L267-L302)
 
     ```mermaid
     flowchart LR
-        A[usLab5ValidCopyIndex 被呼叫] --> B{selector 是哨兵值?}
-        B -- 是 --> D{兩個 slot 都有效?}
-        B -- 否 --> C{selector 指的 slot 有效?}
-        C -- 是 --> R1["回傳 selector 指的 slot（正常穩定運作）"]
-        C -- 否 --> D
-        D -- 是 --> E["回傳 sequence 較大的那個（都有效，比新舊）"]
-        D -- 否 --> F{只有一個有效?}
-        F -- 是 --> G["回傳那一個（另一個剛好失效）"]
-        F -- 否 --> H["都無效，回傳哨兵值（真正第一次開機）"]
+        A[usLab5ValidCopyIndex 被呼叫] --> B{兩個 slot 都有效?}
+        B -- 是 --> C["回傳 sequence 較大的那個（都有效，比新舊）"]
+        B -- 否 --> D{只有一個有效?}
+        D -- 是 --> E["回傳那一個"]
+        D -- 否 --> F["都無效，回傳哨兵值（真正第一次開機）"]
     ```
 
-    `prvLab5Commit()` 拿到這個回傳值後：有效的話用 `^ 1U` 算出下次要寫的 slot（避開目前有效的那個）；都無效（哨兵值）就直接用 slot 0，當作第一次 commit。
+    一律直接比較兩個 slot 自己 header 裡的 `ulSequence`，不依賴任何額外的 selector 變數——這樣即使「上次 commit 剛好只差最後一步沒完成」，也能正確挑到序號較新的那個，不會因為信任了某個過時的捷徑而漏掉真正最新的 slot。`prvLab5Commit()` 拿到這個回傳值後：有效的話用 `^ 1U` 算出下次要寫的 slot（避開目前有效的那個）；都無效（哨兵值）就直接用 slot 0，當作第一次 commit。
 
 > [!IMPORTANT]
 > Commit 的實際程式碼順序是「先存 CPU context，再複製 heap/SRAM」，跟教材寫的「`ucHeap` → SRAM → CPU registers」順序看起來不一樣是因為 `vLab5SaveCurrentTaskContext()` 是把暫存器 push 到**目前 task 自己的 stack 上**。這個 project 用 `xTaskCreate()` 動態配置 task（`configAPPLICATION_ALLOCATED_HEAP=1`），task 的 stack 其實是 `pvPortMalloc()` 從 **`ucHeap`** 裡切出來的一塊，**所以必須先把暫存器 push 進 stack，接著複製 `ucHeap` 才會包含這份「CPU registers」的內容**

@@ -80,14 +80,6 @@ uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] = { 0 };
 #endif
 static uint32_t ulLab5RestoreSeed = 1UL;
 
-// LAB5: 記錄最新一次完整 commit 的 slot index
-#ifdef __ICC430__
-	__persistent
-#else
-	#pragma PERSISTENT( usLab5LastCommitIndex )
-#endif
-static uint16_t usLab5LastCommitIndex = lab5CHECKPOINT_COPIES;
-
 // LAB5: 一份 commit 的 metadata
 typedef struct Lab5CheckpointHeader
 {
@@ -233,7 +225,6 @@ static void prvLab5Commit( void )
 
 		pxHeader->ulSequence = ulNextSequence;
 		pxHeader->ulMagic = lab5CHECKPOINT_MAGIC;
-		usLab5LastCommitIndex = usTargetIndex;
 	}
 	taskEXIT_CRITICAL();
 }
@@ -286,16 +277,10 @@ static uint16_t usLab5ValidCopyIndex( void )
 {
 	Lab5CheckpointHeader_t * const pxHeader0 = &xLab5BackupHeader[ 0U ];
 	Lab5CheckpointHeader_t * const pxHeader1 = &xLab5BackupHeader[ 1U ];
-	
+
 	// 驗證 slot 是不是合法的
 	const uint16_t usValid0 = usLab5SlotIsValid( 0U );
 	const uint16_t usValid1 = usLab5SlotIsValid( 1U );
-
-	if( ( usLab5LastCommitIndex < lab5CHECKPOINT_COPIES ) &&
-	    ( usLab5SlotIsValid( usLab5LastCommitIndex ) != 0U ) )
-	{
-		return usLab5LastCommitIndex;
-	}
 
 	// 兩個 slot 都有效 -> 選 sequence 大的（新的）
 	if( ( usValid0 != 0U ) && ( usValid1 != 0U ) )
